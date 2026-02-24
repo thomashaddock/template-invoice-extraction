@@ -15,6 +15,17 @@ from doc2data.tools.invoice_extractor import InvoiceExtractorTool
 
 class InvoiceProcessingFlow(Flow[InvoiceFlowState]):
 
+    @staticmethod
+    def _unwrap_trigger(crewai_trigger_payload: dict) -> dict:
+        """Normalize trigger payload: AMP wraps data under 'payload', CLI does not."""
+        if "payload" in crewai_trigger_payload and isinstance(
+            crewai_trigger_payload["payload"], dict
+        ):
+            data = crewai_trigger_payload["payload"]
+        else:
+            data = crewai_trigger_payload
+        return data
+
     @start()
     def initialize_flow(self, crewai_trigger_payload: dict = None):
         """Extract trigger metadata and fetch the PDF attachment via Gmail agent."""
@@ -26,16 +37,28 @@ class InvoiceProcessingFlow(Flow[InvoiceFlowState]):
             self.state.error_message = "No trigger payload received"
             return
 
-        self.state.email_sender = crewai_trigger_payload.get("from", "")
-        self.state.email_subject = crewai_trigger_payload.get("subject", "")
-        # Handle both snake_case (trigger sample) and camelCase (live Gmail) keys
+        print(f"[Flow] Raw trigger payload keys: {list(crewai_trigger_payload.keys())}")
+        print(f"[Flow] Raw trigger payload: {json.dumps(crewai_trigger_payload, default=str)[:2000]}")
+
+        data = self._unwrap_trigger(crewai_trigger_payload)
+        print(f"[Flow] Unwrapped data keys: {list(data.keys())}")
+
+        self.state.email_sender = data.get("from", "")
+        self.state.email_subject = data.get("subject", "")
         self.state.email_thread_id = (
-            crewai_trigger_payload.get("thread_id")
-            or crewai_trigger_payload.get("threadId", "")
+            data.get("thread_id")
+            or data.get("threadId", "")
         )
         self.state.email_message_id = (
-            crewai_trigger_payload.get("email_id")
-            or crewai_trigger_payload.get("messageId", "")
+            data.get("email_id")
+            or data.get("messageId", "")
+        )
+
+        print(
+            f"[Flow] Parsed — from={self.state.email_sender!r}, "
+            f"subject={self.state.email_subject!r}, "
+            f"message_id={self.state.email_message_id!r}, "
+            f"thread_id={self.state.email_thread_id!r}"
         )
 
         if not self.state.email_message_id:
@@ -45,25 +68,10 @@ class InvoiceProcessingFlow(Flow[InvoiceFlowState]):
             return
 
         # Gate: subject must contain "invoice" (case-insensitive)
-        if "invoice" not in self.state.email_subject.lower():
+        if self.state.email_subject and "invoice" not in self.state.email_subject.lower():
             print(f"[Flow] Subject does not contain 'invoice': '{self.state.email_subject}' — closing flow")
             self.state.extraction_status = "skipped"
             self.state.error_message = "Email subject does not contain 'invoice'"
-            return
-
-        # Gate: trigger payload must indicate at least one attachment exists
-        attachments_hint = str(crewai_trigger_payload.get("attachments", "")).strip()
-        if not attachments_hint:
-            print("[Flow] No attachments in email — closing flow")
-            self.state.extraction_status = "skipped"
-            self.state.error_message = "No attachments found in email"
-            return
-
-        # Gate: at least one attachment must be a PDF
-        if ".pdf" not in attachments_hint.lower():
-            print("[Flow] No PDF attachment indicated in trigger — closing flow")
-            self.state.extraction_status = "skipped"
-            self.state.error_message = "No PDF attachment found in email"
             return
 
         gmail_agent = Agent(
