@@ -11,8 +11,12 @@ from crewai.tools import BaseTool
 class DBWriterInput(BaseModel):
     """Input schema for DBWriterTool."""
 
-    record: dict = Field(
-        ..., description="Invoice data dict matching the invoices table schema"
+    record_json: str = Field(
+        ...,
+        description=(
+            "A JSON string representing the invoice record to insert. "
+            "Must be a valid JSON object with keys matching the invoices table columns."
+        ),
     )
 
 
@@ -20,13 +24,13 @@ class DBWriterTool(BaseTool):
     name: str = "db_writer"
     description: str = (
         "Inserts a single invoice record into the Heroku Postgres invoices table. "
+        "Accepts a JSON string of the record. "
         "Returns a result with success status and the new record ID."
     )
     args_schema: Type[BaseModel] = DBWriterInput
 
     def _get_connection_string(self) -> str:
         db_url = os.environ["DATABASE_URL"]
-        # Heroku uses postgres:// but psycopg2 requires postgresql://
         if db_url.startswith("postgres://"):
             db_url = db_url.replace("postgres://", "postgresql://", 1)
         if "sslmode" not in db_url:
@@ -34,7 +38,14 @@ class DBWriterTool(BaseTool):
             db_url += f"{separator}sslmode=require"
         return db_url
 
-    def _run(self, record: dict[str, Any]) -> dict[str, Any]:
+    def _run(self, record_json: str | dict[str, Any] = "", **kwargs) -> dict[str, Any]:
+        if isinstance(record_json, dict):
+            record = record_json
+        else:
+            try:
+                record = json.loads(record_json)
+            except (json.JSONDecodeError, TypeError) as e:
+                return {"success": False, "record_id": None, "error_detail": f"Invalid JSON: {e}"}
         columns = [
             "invoice_number",
             "order_id",

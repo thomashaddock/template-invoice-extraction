@@ -9,7 +9,7 @@ from crewai import Agent, LLM
 from crewai.flow.flow import Flow, listen, start
 
 from doc2data.crews.extraction_crew.extraction_crew import ExtractionCrew
-from doc2data.models import InvoiceFlowState, ValidationResult
+from doc2data.models import DBWriteResult, InvoiceFlowState, ValidationResult
 from doc2data.tools.db_writer import DBWriterTool
 from doc2data.tools.invoice_extractor import InvoiceExtractorTool
 
@@ -190,20 +190,37 @@ class InvoiceProcessingFlow(Flow[InvoiceFlowState]):
 
     @listen(initialize_flow)
     def extract_pdf_text(self):
-        """Use InvoiceExtractorTool to pull raw text from the PDF."""
+        """Agent uses InvoiceExtractorTool to pull raw text from the PDF."""
         if self.state.extraction_status in ("skipped", "failed"):
             return
 
         print("[Flow] extract_pdf_text started")
-        extractor = InvoiceExtractorTool()
-        result = extractor._run(pdf_path=self.state.pdf_path)
+        extractor_agent = Agent(
+            role="PDF Text Extractor",
+            goal="Extract all raw text content from PDF invoices",
+            backstory=(
+                "You extract text from PDF files using the invoice_extractor tool. "
+                "You return the raw_extracted_text field from the tool output verbatim, "
+                "without summarizing or modifying any content."
+            ),
+            tools=[InvoiceExtractorTool()],
+            llm=LLM(model="openai/gpt-4o-mini", temperature=0),
+            verbose=False,
+        )
 
-        self.state.pdf_raw_text = result.get("raw_extracted_text", "")
+        result = extractor_agent.kickoff(
+            f"Extract all text from the PDF at path: {self.state.pdf_path}\n\n"
+            f"Use the invoice_extractor tool with pdf_path='{self.state.pdf_path}'.\n"
+            f"Return ONLY the raw_extracted_text field from the tool output. "
+            f"Do not summarize, reformat, or omit any text — return it exactly as-is."
+        )
+
+        self.state.pdf_raw_text = result.raw.strip() if result.raw else ""
 
         if not self.state.pdf_raw_text:
             print("[Flow] Extraction returned empty text — failing")
             self.state.extraction_status = "failed"
-            self.state.error_message = "pdfplumber returned no text from the PDF"
+            self.state.error_message = "Invoice extractor returned no text from the PDF"
 
     @listen(extract_pdf_text)
     def validate_invoice(self):
@@ -264,15 +281,13 @@ class InvoiceProcessingFlow(Flow[InvoiceFlowState]):
 
     @listen(extract_invoice_data)
     def write_to_database(self):
-        """Insert the extracted invoice into Postgres via DBWriterTool."""
+        """Agent uses DBWriterTool to insert the extracted invoice into Postgres."""
         if self.state.extraction_status in ("skipped", "failed"):
             return
 
         print("[Flow] write_to_database started")
-        db_tool = DBWriterTool()
 
         record = dict(self.state.invoice_data)
-        # Serialize line_items for JSONB column
         if "line_items" in record and isinstance(record["line_items"], list):
             record["line_items"] = json.dumps(
                 [
@@ -280,22 +295,41 @@ class InvoiceProcessingFlow(Flow[InvoiceFlowState]):
                     for item in record["line_items"]
                 ]
             )
-        # Add metadata fields from flow state
         record["source_email"] = self.state.email_sender
         record["source_filename"] = self.state.attachment_filename
         record["raw_extracted_text"] = self.state.pdf_raw_text
         record["extraction_status"] = "processed"
 
-        result = db_tool._run(record=record)
+        db_agent = Agent(
+            role="Database Writer",
+            goal="Write structured invoice records to the PostgreSQL database",
+            backstory=(
+                "You persist invoice data to a PostgreSQL database using the db_writer tool. "
+                "You always pass the record exactly as provided without modification."
+            ),
+            tools=[DBWriterTool()],
+            llm=LLM(model="openai/gpt-4o-mini", temperature=0),
+            verbose=False,
+        )
 
-        if result["success"]:
-            self.state.db_record_id = result["record_id"]
+        record_json = json.dumps(record, default=str)
+        result = db_agent.kickoff(
+            f"Write this invoice record to the database using the db_writer tool.\n"
+            f"Pass the following JSON string as the 'record_json' parameter exactly as-is:\n\n"
+            f"{record_json}\n\n"
+            f"Return whether the write succeeded, the record_id, and any error.",
+            response_format=DBWriteResult,
+        )
+
+        db_result = result.pydantic
+        if db_result.success:
+            self.state.db_record_id = db_result.record_id
             self.state.extraction_status = "processed"
-            print(f"[Flow] DB record created: id={result['record_id']}")
+            print(f"[Flow] DB record created: id={db_result.record_id}")
         else:
             self.state.extraction_status = "failed"
-            self.state.error_message = result["error_detail"] or "DB write failed"
-            print(f"[Flow] DB write failed: {result['error_detail']}")
+            self.state.error_message = db_result.error_detail or "DB write failed"
+            print(f"[Flow] DB write failed: {db_result.error_detail}")
 
     @listen(write_to_database)
     def finalize(self):
@@ -445,6 +479,142 @@ def run_with_trigger():
         return result
     except Exception as e:
         raise Exception(f"An error occurred while running the flow with trigger: {e}")
+
+
+def run_local():
+    """Run the core pipeline against a local sample invoice PDF (no Gmail)."""
+    from pathlib import Path
+
+    sample_pdf = Path(__file__).resolve().parents[2] / "local_files" / "sample_invoices" / "invoice_Aaron Bergman_36259.pdf"
+    if not sample_pdf.exists():
+        raise FileNotFoundError(f"Sample PDF not found: {sample_pdf}")
+
+    pdf_path = str(sample_pdf)
+    print(f"\n{'='*60}")
+    print(f"[Local Run] PDF: {sample_pdf.name}")
+    print(f"{'='*60}\n")
+
+    # --- Step 1: Agent + InvoiceExtractorTool ---
+    print("[Step 1/5] Extracting text via PDF Text Extractor agent...")
+    extractor_agent = Agent(
+        role="PDF Text Extractor",
+        goal="Extract all raw text content from PDF invoices",
+        backstory=(
+            "You extract text from PDF files using the invoice_extractor tool. "
+            "You return the raw_extracted_text field from the tool output verbatim, "
+            "without summarizing or modifying any content."
+        ),
+        tools=[InvoiceExtractorTool()],
+        llm=LLM(model="openai/gpt-4o-mini", temperature=0),
+        verbose=False,
+    )
+    extract_result = extractor_agent.kickoff(
+        f"Extract all text from the PDF at path: {pdf_path}\n\n"
+        f"Use the invoice_extractor tool with pdf_path='{pdf_path}'.\n"
+        f"Return ONLY the raw_extracted_text field from the tool output. "
+        f"Do not summarize, reformat, or omit any text — return it exactly as-is."
+    )
+    pdf_raw_text = extract_result.raw.strip()
+    print(f"  -> Extracted {len(pdf_raw_text)} chars of text")
+    if not pdf_raw_text:
+        print("  !! No text extracted — aborting")
+        return
+    print(f"  -> Preview: {pdf_raw_text[:200]}...\n")
+
+    # --- Step 2: Agent + Structured Output (Validation) ---
+    print("[Step 2/5] Validating invoice via Invoice Validator agent...")
+    validator = Agent(
+        role="Invoice Validator",
+        goal="Determine if a PDF contains a real, processable invoice",
+        backstory="You review extracted invoice text and make a binary determination.",
+        llm=LLM(model="openai/gpt-4o-mini", temperature=0),
+        verbose=False,
+    )
+    val_result = validator.kickoff(
+        f"Review the following text extracted from a PDF.\n"
+        f"Determine if this is a real, complete invoice with:\n"
+        f"- At least one line item\n"
+        f"- A non-zero total amount\n"
+        f"- An identifiable vendor or bill-to party\n\n"
+        f"Return is_valid_invoice=False for blank documents, test files, or "
+        f"documents with $0.00 total and no line items.\n\n"
+        f"Text:\n{pdf_raw_text}",
+        response_format=ValidationResult,
+    )
+    validation = val_result.pydantic
+    print(f"  -> is_valid_invoice={validation.is_valid_invoice}, reason={validation.reason!r}\n")
+    if not validation.is_valid_invoice:
+        print("  !! Validation failed — aborting")
+        return
+
+    # --- Step 3: Full Crew (Agent + Task + Guardrail) ---
+    print("[Step 3/5] Extracting structured data via ExtractionCrew...")
+    crew_output = (
+        ExtractionCrew()
+        .crew()
+        .kickoff(inputs={"pdf_raw_text": pdf_raw_text})
+    )
+    if crew_output.pydantic:
+        invoice_data = crew_output.pydantic.model_dump()
+    else:
+        invoice_data = crew_output.json_dict or {}
+
+    if not invoice_data:
+        print("  !! ExtractionCrew returned empty data — aborting")
+        return
+
+    print(f"  -> Invoice #: {invoice_data.get('invoice_number')}")
+    print(f"  -> Vendor: {invoice_data.get('vendor_name')}")
+    print(f"  -> Total: {invoice_data.get('currency', 'USD')} {invoice_data.get('total_amount')}")
+    print(f"  -> Line items: {len(invoice_data.get('line_items', []))}\n")
+
+    # --- Step 4: Agent + DBWriterTool ---
+    print("[Step 4/5] Writing to database via Database Writer agent...")
+    record = dict(invoice_data)
+    if "line_items" in record and isinstance(record["line_items"], list):
+        record["line_items"] = json.dumps(
+            [item if isinstance(item, dict) else item for item in record["line_items"]]
+        )
+    record["source_email"] = "local_test@example.com"
+    record["source_filename"] = sample_pdf.name
+    record["raw_extracted_text"] = pdf_raw_text
+    record["extraction_status"] = "processed"
+
+    db_agent = Agent(
+        role="Database Writer",
+        goal="Write structured invoice records to the PostgreSQL database",
+        backstory=(
+            "You persist invoice data to a PostgreSQL database using the db_writer tool. "
+            "You always pass the record exactly as provided without modification."
+        ),
+        tools=[DBWriterTool()],
+        llm=LLM(model="openai/gpt-4o-mini", temperature=0),
+        verbose=False,
+    )
+    record_json = json.dumps(record, default=str)
+    db_result_raw = db_agent.kickoff(
+        f"Write this invoice record to the database using the db_writer tool.\n"
+        f"Pass the following JSON string as the 'record_json' parameter exactly as-is:\n\n"
+        f"{record_json}\n\n"
+        f"Return whether the write succeeded, the record_id, and any error.",
+        response_format=DBWriteResult,
+    )
+    db_result = db_result_raw.pydantic
+    if db_result.success:
+        print(f"  -> DB record created: id={db_result.record_id}\n")
+    else:
+        print(f"  !! DB write failed: {db_result.error_detail}\n")
+        return
+
+    # --- Step 5: Summary ---
+    print(f"{'='*60}")
+    print("[Step 5/5] Local run complete!")
+    print(f"  PDF:        {sample_pdf.name}")
+    print(f"  Invoice #:  {invoice_data.get('invoice_number')}")
+    print(f"  Vendor:     {invoice_data.get('vendor_name')}")
+    print(f"  Total:      {invoice_data.get('currency', 'USD')} {invoice_data.get('total_amount')}")
+    print(f"  DB Record:  {db_result.record_id}")
+    print(f"{'='*60}")
 
 
 if __name__ == "__main__":

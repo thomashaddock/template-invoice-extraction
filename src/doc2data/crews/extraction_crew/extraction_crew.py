@@ -10,6 +10,8 @@ from doc2data.models import InvoiceRecord
 
 def validate_invoice_record(result: TaskOutput) -> tuple[bool, Any]:
     data = result.pydantic
+    if data is None:
+        return (False, "Failed to parse structured output — retry extraction")
     if not data.invoice_number:
         return (False, "Missing invoice_number — retry extraction")
     if not data.vendor_name:

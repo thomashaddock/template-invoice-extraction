@@ -16,6 +16,7 @@ kickoff = "doc2data.main:kickoff"
 run_crew = "doc2data.main:kickoff"
 plot = "doc2data.main:plot"
 run_with_trigger = "doc2data.main:run_with_trigger"
+run_local = "doc2data.main:run_local"
 
 [build-system]
 requires = ["hatchling"]
