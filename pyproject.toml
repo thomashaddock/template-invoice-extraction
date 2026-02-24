@@ -1,0 +1,25 @@
+[project]
+name = "doc2data"
+version = "0.1.0"
+description = "doc2data using crewAI"
+authors = [{ name = "Your Name", email = "you@example.com" }]
+requires-python = ">=3.10,<3.14"
+dependencies = [
+    "crewai[tools]>=0.186.1",
+    "pdfplumber>=0.11",
+    "psycopg2-binary>=2.9",
+    "python-dateutil",
+]
+
+[project.scripts]
+kickoff = "doc2data.main:kickoff"
+run_crew = "doc2data.main:kickoff"
+plot = "doc2data.main:plot"
+run_with_trigger = "doc2data.main:run_with_trigger"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.crewai]
+type = "flow"

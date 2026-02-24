@@ -1,0 +1,33 @@
+extract_invoice_task:
+  description: >
+    Given the following raw invoice text, extract all available fields and return
+    a structured JSON record. The text was extracted from a PDF using pdfplumber.
+
+    Invoice text:
+    {pdf_raw_text}
+
+    Extract these fields exactly:
+    - invoice_number (string)
+    - vendor_name (string)
+    - bill_to_name (string)
+    - bill_to_address (string)
+    - ship_to_address (string)
+    - invoice_date (ISO date string: YYYY-MM-DD)
+    - due_date (ISO date string or null)
+    - ship_mode (string or null)
+    - line_items (list of objects: description, quantity, rate, amount)
+    - subtotal (number)
+    - discount_percent (number or null)
+    - discount_amount (number or null)
+    - shipping_cost (number or null)
+    - tax_amount (number or null)
+    - total_amount (number)
+    - currency (3-letter ISO code, default "USD")
+    - order_id (string or null)
+
+    Return null for any field not present in the text. Never invent values.
+  expected_output: >
+    A valid JSON object containing all invoice fields listed above.
+    All numeric fields must be numbers (not strings).
+    All date fields must be ISO format strings (YYYY-MM-DD) or null.
+  agent: invoice_extractor_agent
