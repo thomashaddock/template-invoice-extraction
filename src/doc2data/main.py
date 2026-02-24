@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 import base64
 import json
+import re
 import tempfile
 from datetime import datetime, timezone
 
@@ -82,7 +83,7 @@ class InvoiceProcessingFlow(Flow[InvoiceFlowState]):
                 "You always call the tools with the exact parameters provided. "
                 "When returning results, include the complete raw JSON response."
             ),
-            apps=["gmail/get_message", "gmail/get_attachment"],
+            apps=["gmail"],
             verbose=False,
         )
 
@@ -97,7 +98,6 @@ class InvoiceProcessingFlow(Flow[InvoiceFlowState]):
 
         # Parse attachment metadata from the agent's response
         raw_response = message_result.raw
-        import re
 
         attachment_id = None
         filename = None
