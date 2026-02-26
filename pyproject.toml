@@ -9,6 +9,13 @@ dependencies = [
     "pdfplumber>=0.11",
     "psycopg2-binary>=2.9",
     "python-dateutil",
+    "google-api-python-client>=2.0",
+    "google-auth>=2.0",
+    "humanize>=4.12.3",
+    "pandas>=2.3.0",
+    "pydantic>=2.11.5",
+    "python-dotenv>=1.0",
+    "streamlit>=1.45.1",
 ]
 
 [project.scripts]
@@ -17,6 +24,7 @@ run_crew = "doc2data.main:kickoff"
 plot = "doc2data.main:plot"
 run_with_trigger = "doc2data.main:run_with_trigger"
 run_local = "doc2data.main:run_local"
+run_gdrive = "doc2data.main:run_gdrive"
 
 [build-system]
 requires = ["hatchling"]

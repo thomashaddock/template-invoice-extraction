@@ -32,7 +32,14 @@ class InvoiceRecord(BaseModel):
 
 
 class InvoiceFlowState(BaseModel):
-    # Trigger inputs
+    # Trigger source — "gdrive" or "gmail"
+    trigger_source: str = ""
+
+    # Google Drive trigger inputs
+    drive_file_id: str = ""
+    source_filename: str = ""
+
+    # Gmail trigger inputs (kept for future use)
     email_sender: str = ""
     email_subject: str = ""
     email_thread_id: str = ""

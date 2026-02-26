@@ -1,6 +1,12 @@
 .env
+service-account-key.json
 __pycache__/
 lib/
 .DS_Store
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
 
 local_files/

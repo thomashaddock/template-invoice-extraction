@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 import base64
 import json
+import os
 import re
 import tempfile
 from datetime import datetime, timezone
@@ -27,9 +28,40 @@ class InvoiceProcessingFlow(Flow[InvoiceFlowState]):
             data = crewai_trigger_payload
         return data
 
+    def _download_pdf_from_gdrive(self, file_id: str) -> str:
+        """Download a PDF from Google Drive to a local temp file and return its path."""
+        from google.oauth2 import service_account
+        from googleapiclient.discovery import build
+        from googleapiclient.http import MediaIoBaseDownload
+        from io import BytesIO
+
+        sa_json = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "")
+        if os.path.isfile(sa_json):
+            credentials = service_account.Credentials.from_service_account_file(
+                sa_json, scopes=["https://www.googleapis.com/auth/drive.readonly"]
+            )
+        else:
+            creds_info = json.loads(sa_json)
+            credentials = service_account.Credentials.from_service_account_info(
+                creds_info, scopes=["https://www.googleapis.com/auth/drive.readonly"]
+            )
+        service = build("drive", "v3", credentials=credentials)
+
+        request = service.files().get_media(fileId=file_id, supportsAllDrives=True)
+        buffer = BytesIO()
+        downloader = MediaIoBaseDownload(buffer, request)
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
+
+        tmp = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+        tmp.write(buffer.getvalue())
+        tmp.close()
+        return tmp.name
+
     @start()
     def initialize_flow(self, crewai_trigger_payload: dict = None):
-        """Extract trigger metadata and fetch the PDF attachment via Gmail agent."""
+        """Route to S3 or Gmail trigger based on payload contents."""
         print("[Flow] initialize_flow started")
 
         if not crewai_trigger_payload:
@@ -44,6 +76,35 @@ class InvoiceProcessingFlow(Flow[InvoiceFlowState]):
         data = self._unwrap_trigger(crewai_trigger_payload)
         print(f"[Flow] Unwrapped data keys: {list(data.keys())}")
 
+        if data.get("drive_file_id"):
+            self._initialize_from_gdrive(data)
+        else:
+            self._initialize_from_gmail(data)
+
+    # ── Google Drive trigger (Streamlit uploads) ────────────────
+
+    def _initialize_from_gdrive(self, data: dict):
+        """Download the PDF from Google Drive and populate flow state."""
+        self.state.trigger_source = "gdrive"
+        self.state.drive_file_id = data["drive_file_id"]
+        self.state.source_filename = data.get("source_filename", "upload.pdf")
+
+        print(f"[Flow] GDrive trigger — file_id={self.state.drive_file_id}, filename={self.state.source_filename}")
+
+        try:
+            self.state.pdf_path = self._download_pdf_from_gdrive(self.state.drive_file_id)
+            file_size = os.path.getsize(self.state.pdf_path)
+            print(f"[Flow] PDF downloaded to {self.state.pdf_path} ({file_size} bytes)")
+        except Exception as e:
+            print(f"[Flow] Failed to download PDF from Google Drive: {e}")
+            self.state.extraction_status = "failed"
+            self.state.error_message = f"Failed to download PDF from Google Drive: {e}"
+
+    # ── Gmail trigger (future use) ──────────────────────────────
+
+    def _initialize_from_gmail(self, data: dict):
+        """Fetch the PDF attachment from Gmail."""
+        self.state.trigger_source = "gmail"
         self.state.email_sender = data.get("from", "")
         self.state.email_subject = data.get("subject", "")
         self.state.email_thread_id = (
@@ -56,7 +117,7 @@ class InvoiceProcessingFlow(Flow[InvoiceFlowState]):
         )
 
         print(
-            f"[Flow] Parsed — from={self.state.email_sender!r}, "
+            f"[Flow] Gmail trigger — from={self.state.email_sender!r}, "
             f"subject={self.state.email_subject!r}, "
             f"message_id={self.state.email_message_id!r}, "
             f"thread_id={self.state.email_thread_id!r}"
@@ -68,7 +129,6 @@ class InvoiceProcessingFlow(Flow[InvoiceFlowState]):
             self.state.error_message = "No message ID in trigger payload"
             return
 
-        # Gate: subject must contain "invoice" (case-insensitive)
         if self.state.email_subject and "invoice" not in self.state.email_subject.lower():
             print(f"[Flow] Subject does not contain 'invoice': '{self.state.email_subject}' — closing flow")
             self.state.extraction_status = "skipped"
@@ -87,7 +147,6 @@ class InvoiceProcessingFlow(Flow[InvoiceFlowState]):
             verbose=False,
         )
 
-        # Step 1: Fetch the full message via agent kickoff (also initializes platform tools)
         print(f"[Flow] Fetching message {self.state.email_message_id}")
         message_result = gmail_agent.kickoff(
             f"Use the google_gmail_get_message tool to retrieve the message. "
@@ -96,7 +155,6 @@ class InvoiceProcessingFlow(Flow[InvoiceFlowState]):
             f"array with any filename, mimeType, and body.attachmentId fields."
         )
 
-        # Parse attachment metadata from the agent's response
         raw_response = message_result.raw
 
         attachment_id = None
@@ -132,8 +190,6 @@ class InvoiceProcessingFlow(Flow[InvoiceFlowState]):
         self.state.attachment_filename = filename or "attachment.pdf"
         print(f"[Flow] Found attachment: {self.state.attachment_filename} (id: {attachment_id})")
 
-        # Step 2: Fetch attachment binary data via direct tool call (no LLM)
-        # After the first kickoff, platform tools are now initialized on the agent
         get_att_tool = None
         for tool in gmail_agent.tools:
             if "get_attachment" in getattr(tool, "name", ""):
@@ -156,7 +212,6 @@ class InvoiceProcessingFlow(Flow[InvoiceFlowState]):
                 get_att_tool = None
 
         if not get_att_tool:
-            # Fallback: use agent kickoff for attachment fetch
             print("[Flow] Fetching attachment via agent kickoff (fallback)")
             att_result = gmail_agent.kickoff(
                 f"Use the google_gmail_get_attachment tool. "
@@ -173,7 +228,6 @@ class InvoiceProcessingFlow(Flow[InvoiceFlowState]):
             if not b64_data:
                 raise ValueError("No base64 data received from attachment fetch")
 
-            # Gmail uses URL-safe base64
             b64_data = b64_data.replace("-", "+").replace("_", "/")
             pdf_bytes = base64.b64decode(b64_data)
 
@@ -295,8 +349,12 @@ class InvoiceProcessingFlow(Flow[InvoiceFlowState]):
                     for item in record["line_items"]
                 ]
             )
-        record["source_email"] = self.state.email_sender
-        record["source_filename"] = self.state.attachment_filename
+        if self.state.trigger_source == "gdrive":
+            record["source_email"] = "streamlit_upload"
+            record["source_filename"] = self.state.source_filename
+        else:
+            record["source_email"] = self.state.email_sender
+            record["source_filename"] = self.state.attachment_filename
         record["raw_extracted_text"] = self.state.pdf_raw_text
         record["extraction_status"] = "processed"
 
@@ -333,8 +391,12 @@ class InvoiceProcessingFlow(Flow[InvoiceFlowState]):
 
     @listen(write_to_database)
     def finalize(self):
-        """Send a confirmation reply email on the original Gmail thread."""
+        """Send a confirmation reply email on the original Gmail thread (Gmail triggers only)."""
         print(f"[Flow] finalize — status={self.state.extraction_status}")
+
+        if self.state.trigger_source == "gdrive":
+            print("[Flow] GDrive trigger — skipping email reply, results returned via API")
+            return
 
         if not self.state.email_thread_id:
             print("[Flow] No thread ID — skipping email reply")
@@ -361,49 +423,6 @@ class InvoiceProcessingFlow(Flow[InvoiceFlowState]):
             f"Send this email now as an inline thread reply."
         )
         print("[Flow] Confirmation email sent")
-
-    @staticmethod
-    def _find_pdf_attachment(msg_data: dict) -> tuple[str | None, str | None]:
-        """Walk Gmail message parts to find the first PDF attachment.
-
-        Returns (attachment_id, filename) or (None, None).
-        """
-        result = msg_data.get("result", msg_data)
-        if "error" in result:
-            return None, None
-
-        payload = result.get("payload", {})
-
-        def search_parts(parts: list) -> tuple[str | None, str | None]:
-            for part in parts:
-                fname = part.get("filename", "")
-                mime = part.get("mimeType", "")
-                body = part.get("body", {})
-                att_id = body.get("attachmentId")
-
-                if att_id and fname.lower().endswith(".pdf"):
-                    return att_id, fname
-                if att_id and mime == "application/pdf":
-                    return att_id, fname or "attachment.pdf"
-
-                nested = part.get("parts", [])
-                if nested:
-                    found = search_parts(nested)
-                    if found[0]:
-                        return found
-            return None, None
-
-        # Check top-level payload body
-        top_body = payload.get("body", {})
-        top_att = top_body.get("attachmentId")
-        top_fn = payload.get("filename", "")
-        if top_att and (
-            top_fn.lower().endswith(".pdf")
-            or payload.get("mimeType") == "application/pdf"
-        ):
-            return top_att, top_fn or "attachment.pdf"
-
-        return search_parts(payload.get("parts", []))
 
     def _build_reply_body(self) -> str:
         status = self.state.extraction_status
@@ -481,13 +500,81 @@ def run_with_trigger():
         raise Exception(f"An error occurred while running the flow with trigger: {e}")
 
 
+def run_gdrive():
+    """Run the full flow against a PDF already uploaded to Google Drive.
+
+    Usage:  uv run run_gdrive <drive_file_id> [source_filename]
+
+    This simulates what CrewAI Enterprise receives when Streamlit triggers a run.
+    Requires GOOGLE_SERVICE_ACCOUNT_JSON and GOOGLE_DRIVE_FOLDER_ID in .env.
+    """
+    import sys
+
+    from dotenv import load_dotenv
+
+    load_dotenv()
+
+    if len(sys.argv) < 2:
+        print("Usage: uv run run_gdrive <drive_file_id> [source_filename]")
+        print("\nProvide the Google Drive file ID of an uploaded PDF.")
+        print("You can find it in the Drive URL or from the Streamlit upload logs.")
+        sys.exit(1)
+
+    drive_file_id = sys.argv[1]
+    source_filename = sys.argv[2] if len(sys.argv) >= 3 else "upload.pdf"
+
+    print(f"\n{'='*60}")
+    print(f"[GDrive Run] file_id={drive_file_id}")
+    print(f"[GDrive Run] filename={source_filename}")
+    print(f"{'='*60}\n")
+
+    trigger_payload = {
+        "drive_file_id": drive_file_id,
+        "source_filename": source_filename,
+    }
+
+    flow = InvoiceProcessingFlow()
+    result = flow.kickoff({"crewai_trigger_payload": trigger_payload})
+
+    print(f"\n{'='*60}")
+    print("[GDrive Run] Flow complete!")
+    print(f"  Status:     {flow.state.extraction_status}")
+    if flow.state.db_record_id:
+        print(f"  DB Record:  {flow.state.db_record_id}")
+    if flow.state.invoice_data:
+        data = flow.state.invoice_data
+        print(f"  Invoice #:  {data.get('invoice_number')}")
+        print(f"  Vendor:     {data.get('vendor_name')}")
+        print(f"  Total:      {data.get('currency', 'USD')} {data.get('total_amount')}")
+    if flow.state.error_message:
+        print(f"  Error:      {flow.state.error_message}")
+    print(f"{'='*60}")
+
+    return result
+
+
 def run_local():
-    """Run the core pipeline against a local sample invoice PDF (no Gmail)."""
+    """Run the core pipeline against a local PDF (no Gmail, no S3).
+
+    Usage:  uv run run_local [path/to/invoice.pdf]
+    If no path given, defaults to local_files/sample_invoices/*.pdf (first found).
+    """
+    import sys
     from pathlib import Path
 
-    sample_pdf = Path(__file__).resolve().parents[2] / "local_files" / "sample_invoices" / "invoice_Aaron Bergman_36259.pdf"
+    if len(sys.argv) >= 2 and not sys.argv[1].startswith("-"):
+        sample_pdf = Path(sys.argv[1]).resolve()
+    else:
+        sample_dir = Path(__file__).resolve().parents[2] / "local_files" / "sample_invoices"
+        pdfs = sorted(sample_dir.glob("*.pdf")) if sample_dir.exists() else []
+        if not pdfs:
+            raise FileNotFoundError(
+                f"No PDFs found. Either pass a path as argument or put a PDF in {sample_dir}"
+            )
+        sample_pdf = pdfs[0]
+
     if not sample_pdf.exists():
-        raise FileNotFoundError(f"Sample PDF not found: {sample_pdf}")
+        raise FileNotFoundError(f"PDF not found: {sample_pdf}")
 
     pdf_path = str(sample_pdf)
     print(f"\n{'='*60}")
