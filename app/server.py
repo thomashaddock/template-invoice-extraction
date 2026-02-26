@@ -133,10 +133,21 @@ async def proxy_ws(websocket: WebSocket, path: str = ""):
     if qs:
         ws_url += f"?{qs}"
 
+    # Forward browser Host/Origin so Streamlit accepts the connection and doesn't close it.
+    # Without these, Streamlit can close the WS immediately (logs show "connection closed" in ~15ms).
+    host = websocket.headers.get("host", "")
+    origin = websocket.headers.get("origin") or (f"https://{host}" if host else None)
+    extra_headers = {}
+    if host:
+        extra_headers["Host"] = host
+    if origin:
+        extra_headers["Origin"] = origin
+
     upstream = None
     try:
         upstream = await websockets.connect(
             ws_url,
+            additional_headers=extra_headers,
             max_size=2**24,
             open_timeout=10,
             ping_interval=20,

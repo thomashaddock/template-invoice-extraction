@@ -1,0 +1,20 @@
+Heroku logs capture (invoice-extraction-app) — 2026-02-26
+
+DIAGNOSIS FROM LOGS:
+- WebSocket to /_stcore/stream is ACCEPTED (status 101) and "connection open" + "WS proxy connected to upstream" log.
+- Within ~15–350 ms we see "connection closed".
+- Streamlit frontend then retries (/_stcore/health, /_stcore/host-config, then another WS). This loop causes the "Connection error" / broken UI.
+
+ROOT CAUSE:
+- The upstream connection from our proxy to Streamlit (ws://127.0.0.1:8501/_stcore/stream) is opened without the browser's Host/Origin. Streamlit may be closing the connection when it doesn't see the expected origin or when the first message from the client is not relayed in time.
+- Fix: forward Host and Origin (and optionally other headers) when opening the upstream WebSocket so Streamlit sees the same context as the real client.
+
+LOG PATTERN (repeats):
+  INFO: ... "WebSocket /_stcore/stream" [accepted]
+  INFO: connection open
+  INFO:__main__:WS proxy connected to upstream ws://127.0.0.1:8501/_stcore/stream
+  heroku[router]: ... /_stcore/stream ... status=101
+  INFO: connection closed
+  (then GET /_stcore/health, GET /_stcore/host-config, repeat)
+
+Full logs saved via: heroku logs -a invoice-extraction-app -n 500
