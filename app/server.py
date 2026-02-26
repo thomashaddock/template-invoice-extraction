@@ -133,21 +133,21 @@ async def proxy_ws(websocket: WebSocket, path: str = ""):
     if qs:
         ws_url += f"?{qs}"
 
-    # Forward browser Host/Origin so Streamlit accepts the connection and doesn't close it.
-    # Without these, Streamlit can close the WS immediately (logs show "connection closed" in ~15ms).
-    host = websocket.headers.get("host", "")
-    origin = websocket.headers.get("origin") or (f"https://{host}" if host else None)
-    extra_headers = {}
-    if host:
-        extra_headers["Host"] = host
-    if origin:
-        extra_headers["Origin"] = origin
+    # Forward Sec-WebSocket-Protocol so Streamlit's handshake matches the browser's.
+    # Do NOT forward Host/Origin — Streamlit rejects with HTTP 400 when they differ from 127.0.0.1:8501.
+    subprotocols = []
+    raw = websocket.headers.get("sec-websocket-protocol") or websocket.headers.get("Sec-WebSocket-Protocol")
+    if raw:
+        # "streamlit, PLACEHOLDER_AUTH_TOKEN" or "streamlit" — send first token only so proxy handshake succeeds
+        subprotocols = [p.strip() for p in raw.split(",") if p.strip() and "PLACEHOLDER" not in p]
+    if not subprotocols:
+        subprotocols = ["streamlit"]
 
     upstream = None
     try:
         upstream = await websockets.connect(
             ws_url,
-            additional_headers=extra_headers,
+            subprotocols=subprotocols,
             max_size=2**24,
             open_timeout=10,
             ping_interval=20,
