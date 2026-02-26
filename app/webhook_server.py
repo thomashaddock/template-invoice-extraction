@@ -138,8 +138,8 @@ def _run_server(port: int):
 def ensure_webhook_server_running(port: int | None = None):
     """
     Start the FastAPI webhook receiver in a background thread.
-    Used for local development only. On Heroku, server.py handles
-    the webhook endpoint directly — this is skipped via env var.
+    For local development only. On Heroku the app runs Streamlit only
+    (no webhook); this helper is skipped when _DOC2DATA_PROXY_MODE is set.
     """
     if os.environ.get("_DOC2DATA_PROXY_MODE"):
         return
