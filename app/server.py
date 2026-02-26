@@ -115,42 +115,72 @@ async def proxy_ws(websocket: WebSocket, path: str = ""):
     if qs:
         ws_url += f"?{qs}"
 
+    extra_headers = {}
+    for key in ("origin", "cookie", "sec-websocket-protocol", "user-agent"):
+        val = websocket.headers.get(key)
+        if val:
+            extra_headers[key] = val
+
+    upstream = None
     try:
-        async with websockets.connect(ws_url, max_size=2**24) as upstream:
+        upstream = await websockets.connect(
+            ws_url,
+            additional_headers=extra_headers,
+            max_size=2**24,
+            open_timeout=10,
+            ping_interval=20,
+            ping_timeout=20,
+        )
+        logger.info("WS proxy connected to upstream %s", ws_url)
+    except Exception as e:
+        logger.error("WS proxy failed to connect to %s: %s", ws_url, e)
+        try:
+            await websocket.close(code=1011)
+        except Exception:
+            pass
+        return
 
-            async def client_to_upstream():
-                try:
-                    while True:
-                        msg = await websocket.receive()
-                        if msg.get("type") == "websocket.disconnect":
-                            break
-                        if "text" in msg:
-                            await upstream.send(msg["text"])
-                        elif "bytes" in msg:
-                            await upstream.send(msg["bytes"])
-                except (WebSocketDisconnect, Exception):
-                    pass
+    async def client_to_upstream():
+        try:
+            while True:
+                msg = await websocket.receive()
+                msg_type = msg.get("type", "")
+                if msg_type == "websocket.disconnect":
+                    break
+                if "text" in msg:
+                    await upstream.send(msg["text"])
+                elif "bytes" in msg:
+                    await upstream.send(msg["bytes"])
+        except WebSocketDisconnect:
+            pass
+        except Exception as e:
+            logger.debug("WS client->upstream error: %s", e)
 
-            async def upstream_to_client():
-                try:
-                    async for message in upstream:
-                        if isinstance(message, str):
-                            await websocket.send_text(message)
-                        else:
-                            await websocket.send_bytes(message)
-                except Exception:
-                    pass
+    async def upstream_to_client():
+        try:
+            async for message in upstream:
+                if isinstance(message, str):
+                    await websocket.send_text(message)
+                else:
+                    await websocket.send_bytes(message)
+        except Exception as e:
+            logger.debug("WS upstream->client error: %s", e)
 
-            tasks = [
-                asyncio.create_task(client_to_upstream()),
-                asyncio.create_task(upstream_to_client()),
-            ]
-            _, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
-            for t in pending:
-                t.cancel()
-    except Exception:
-        pass
+    try:
+        tasks = [
+            asyncio.create_task(client_to_upstream()),
+            asyncio.create_task(upstream_to_client()),
+        ]
+        _, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        for t in pending:
+            t.cancel()
+    except Exception as e:
+        logger.debug("WS proxy relay error: %s", e)
     finally:
+        try:
+            await upstream.close()
+        except Exception:
+            pass
         try:
             await websocket.close()
         except Exception:
