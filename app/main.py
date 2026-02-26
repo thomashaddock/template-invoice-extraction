@@ -1,4 +1,5 @@
-import time
+import base64
+from pathlib import Path
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -7,6 +8,14 @@ import streamlit as st
 
 from services import ExecutionsService
 from utils import render_invoice_data
+from webhook_server import ensure_webhook_server_running
+
+SAMPLES_DIR = Path(__file__).parent / "public" / "samples"
+SAMPLE_INVOICES = [
+    {"name": "Anthony Johnson", "invoice_id": "35339", "file": "invoice_Anthony Johnson_35339.pdf"},
+    {"name": "Barry Gonzalez", "invoice_id": "2765", "file": "invoice_Barry Gonzalez_2765.pdf"},
+    {"name": "Bill Eplett", "invoice_id": "27119", "file": "invoice_Bill Eplett_27119.pdf"},
+]
 
 st.set_page_config(
     page_title="Doc2Data Demo",
@@ -14,10 +23,14 @@ st.set_page_config(
     layout="centered",
 )
 
+ensure_webhook_server_running()
+
 if "processing" not in st.session_state:
     st.session_state.processing = False
 if "result" not in st.session_state:
     st.session_state.result = None
+if "selected_sample" not in st.session_state:
+    st.session_state.selected_sample = None
 
 st.html("""
 <style>
@@ -64,23 +77,40 @@ st.html("""
         background: #f0f5ff !important;
     }
 
-    /* Run Crew button */
+    /* All buttons — shared base */
     .stButton > button {
+        border-radius: 8px !important;
+        font-weight: 600 !important;
+        font-size: 0.9rem !important;
+        padding: 0.5rem 1.5rem !important;
+    }
+
+    /* Primary buttons (Run Crew, selected sample) */
+    [data-testid="stBaseButton-primary"] {
         background-color: #0062ff !important;
         border-color: #0062ff !important;
         color: white !important;
-        border-radius: 8px !important;
-        font-weight: 600 !important;
-        font-size: 1rem !important;
-        padding: 0.6rem 2rem !important;
     }
-    .stButton > button:hover {
+    [data-testid="stBaseButton-primary"]:hover {
         background-color: #0050d4 !important;
         border-color: #0050d4 !important;
     }
-    .stButton > button:disabled {
+    [data-testid="stBaseButton-primary"]:disabled {
         background-color: #a0c4ff !important;
         border-color: #a0c4ff !important;
+    }
+
+    /* Secondary buttons (sample selection) */
+    [data-testid="stBaseButton-secondary"] {
+        background-color: transparent !important;
+        border: 1px solid #ccd0d5 !important;
+        color: #555 !important;
+        font-size: 0.85rem !important;
+    }
+    [data-testid="stBaseButton-secondary"]:hover {
+        border-color: #0062ff !important;
+        color: #0062ff !important;
+        background-color: #f0f5ff !important;
     }
 
     /* Steps row */
@@ -123,6 +153,50 @@ st.html("""
         font-weight: 600;
         color: #1a1a1a;
         margin-bottom: 1rem;
+    }
+
+    /* Sample invoice cards */
+    .sample-divider {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        margin: 1.25rem 0 1rem 0;
+        color: #aaa;
+        font-size: 0.85rem;
+    }
+    .sample-divider::before, .sample-divider::after {
+        content: "";
+        flex: 1;
+        height: 1px;
+        background: #e5e7eb;
+    }
+    .sample-card {
+        border: 2px solid #e5e7eb;
+        border-radius: 10px;
+        padding: 1rem 0.75rem;
+        text-align: center;
+        transition: all 0.2s ease;
+        cursor: default;
+        background: #fafbfc;
+    }
+    .sample-card.active {
+        border-color: #0062ff;
+        background: #f0f5ff;
+        box-shadow: 0 0 0 3px rgba(0, 98, 255, 0.12);
+    }
+    .sample-card .icon {
+        font-size: 1.6rem;
+        margin-bottom: 0.35rem;
+    }
+    .sample-card .name {
+        font-weight: 600;
+        font-size: 0.9rem;
+        color: #1a1a1a;
+        margin-bottom: 0.15rem;
+    }
+    .sample-card .inv-id {
+        font-size: 0.75rem;
+        color: #888;
     }
 
     /* Footer */
@@ -173,18 +247,73 @@ uploaded_file = st.file_uploader(
     label_visibility="collapsed",
 )
 
+if uploaded_file is not None:
+    st.session_state.selected_sample = None
+
+# ── Sample invoices ─────────────────────────────────────────
+
+st.html('<div class="sample-divider">or try a sample invoice</div>')
+
+sample_cols = st.columns(3)
+for i, sample in enumerate(SAMPLE_INVOICES):
+    with sample_cols[i]:
+        is_active = (
+            st.session_state.selected_sample is not None
+            and st.session_state.selected_sample["file"] == sample["file"]
+        )
+        active_cls = "active" if is_active else ""
+        st.html(f"""
+        <div class="sample-card {active_cls}">
+            <div class="icon">📄</div>
+            <div class="name">{sample["name"]}</div>
+            <div class="inv-id">Invoice #{sample["invoice_id"]}</div>
+        </div>
+        """)
+        if st.button(
+            "✓ Selected" if is_active else "Use this sample",
+            key=f"sample_{i}",
+            use_container_width=True,
+            type="primary" if is_active else "secondary",
+        ):
+            if is_active:
+                st.session_state.selected_sample = None
+            else:
+                st.session_state.selected_sample = sample
+            st.session_state.result = None
+            st.rerun()
+
+# ── Sample preview ──────────────────────────────────────────
+
+if st.session_state.selected_sample is not None:
+    sample_path = SAMPLES_DIR / st.session_state.selected_sample["file"]
+    sample_bytes = sample_path.read_bytes()
+    b64 = base64.b64encode(sample_bytes).decode()
+    with st.expander("Preview selected invoice", expanded=True):
+        st.html(
+            f'<iframe src="data:application/pdf;base64,{b64}" '
+            f'width="100%" height="450" style="border:none;border-radius:8px;"></iframe>'
+        )
+
+has_input = uploaded_file is not None or st.session_state.selected_sample is not None
+
 run_clicked = st.button(
     "Run Crew",
+    type="primary",
     use_container_width=True,
-    disabled=(uploaded_file is None),
+    disabled=(not has_input),
 )
 
-if run_clicked and uploaded_file is not None:
+if run_clicked and has_input:
     st.session_state.processing = True
     st.session_state.result = None
 
-    pdf_bytes = uploaded_file.getvalue()
-    filename = uploaded_file.name
+    if uploaded_file is not None:
+        pdf_bytes = uploaded_file.getvalue()
+        filename = uploaded_file.name
+    else:
+        sample_path = SAMPLES_DIR / st.session_state.selected_sample["file"]
+        pdf_bytes = sample_path.read_bytes()
+        filename = st.session_state.selected_sample["file"]
 
     progress = st.empty()
     status_text = st.empty()
@@ -198,37 +327,21 @@ if run_clicked and uploaded_file is not None:
         bar.progress(20, text="Uploading PDF to Google Drive...")
         kickoff_id = service.start_execution(pdf_bytes, filename)
 
-        bar.progress(40, text="Crew kicked off — waiting for results...")
-        status_text.caption(f"Execution ID: `{kickoff_id}`")
-
-        poll_count = 0
-        max_polls = 60
-        result = None
-        while poll_count < max_polls:
-            time.sleep(5)
-            poll_count += 1
-            pct = min(40 + int((poll_count / max_polls) * 55), 95)
-            bar.progress(pct, text=f"Processing... (polling {poll_count})")
-
-            try:
-                response = service.crewai.status(kickoff_id)
-                state = response.get("state", "")
-                if state == "SUCCESS":
-                    import json
-                    raw = response.get("result")
-                    if isinstance(raw, str):
-                        result = json.loads(raw)
-                    else:
-                        result = raw
-                    break
-                elif state in ("FAILURE", "REVOKED"):
-                    result = {"extraction_status": "failed", "error_message": f"Execution {state.lower()}"}
-                    break
-            except Exception:
-                continue
+        if service.uses_webhooks:
+            bar.progress(40, text="Crew kicked off — waiting for webhook...")
+            status_text.caption(f"Execution ID: `{kickoff_id}`")
+            bar.progress(60, text="Processing — CrewAI will push results via webhook...")
+            result = service.wait_for_result(kickoff_id, timeout=120)
+        else:
+            bar.progress(40, text="Crew kicked off — polling for results...")
+            status_text.caption(f"Execution ID: `{kickoff_id}` (polling mode — no webhook URL configured)")
+            result = service.wait_for_result(
+                kickoff_id,
+                timeout=300,
+                progress_cb=lambda pct, text: bar.progress(pct, text=text),
+            )
 
         bar.progress(100, text="Done!")
-        time.sleep(0.5)
         progress.empty()
         status_text.empty()
 
