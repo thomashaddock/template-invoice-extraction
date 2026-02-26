@@ -60,21 +60,32 @@ class InvoiceProcessingFlow(Flow[InvoiceFlowState]):
         return tmp.name
 
     @start()
-    def initialize_flow(self, crewai_trigger_payload: dict = None):
-        """Route to S3 or Gmail trigger based on payload contents."""
+    def initialize_flow(
+        self,
+        drive_file_id: str = "",
+        source_filename: str = "",
+        crewai_trigger_payload: dict = None,
+    ):
+        """Accept flat API inputs (drive_file_id, source_filename) or AMP trigger payload."""
         print("[Flow] initialize_flow started")
+        print(f"[Flow] drive_file_id={drive_file_id!r}, source_filename={source_filename!r}, "
+              f"crewai_trigger_payload={'present' if crewai_trigger_payload else 'None'}")
 
-        if not crewai_trigger_payload:
-            print("[Flow] No trigger payload — skipping")
+        if drive_file_id:
+            data = {
+                "drive_file_id": drive_file_id,
+                "source_filename": source_filename or "upload.pdf",
+            }
+        elif crewai_trigger_payload:
+            print(f"[Flow] Raw trigger payload keys: {list(crewai_trigger_payload.keys())}")
+            data = self._unwrap_trigger(crewai_trigger_payload)
+        else:
+            print("[Flow] No inputs received — skipping")
             self.state.extraction_status = "skipped"
             self.state.error_message = "No trigger payload received"
             return
 
-        print(f"[Flow] Raw trigger payload keys: {list(crewai_trigger_payload.keys())}")
-        print(f"[Flow] Raw trigger payload: {json.dumps(crewai_trigger_payload, default=str)[:2000]}")
-
-        data = self._unwrap_trigger(crewai_trigger_payload)
-        print(f"[Flow] Unwrapped data keys: {list(data.keys())}")
+        print(f"[Flow] Resolved data keys: {list(data.keys())}")
 
         if data.get("drive_file_id"):
             self._initialize_from_gdrive(data)
@@ -528,13 +539,11 @@ def run_gdrive():
     print(f"[GDrive Run] filename={source_filename}")
     print(f"{'='*60}\n")
 
-    trigger_payload = {
+    flow = InvoiceProcessingFlow()
+    result = flow.kickoff({
         "drive_file_id": drive_file_id,
         "source_filename": source_filename,
-    }
-
-    flow = InvoiceProcessingFlow()
-    result = flow.kickoff({"crewai_trigger_payload": trigger_payload})
+    })
 
     print(f"\n{'='*60}")
     print("[GDrive Run] Flow complete!")
