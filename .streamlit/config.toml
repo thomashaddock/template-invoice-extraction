@@ -4,3 +4,6 @@ primaryColor = "#0062ff"
 
 [server]
 headless = true
+enableCORS = false
+enableXsrfProtection = false
+enableWebsocketCompression = false

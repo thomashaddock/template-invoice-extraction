@@ -115,21 +115,15 @@ async def proxy_ws(websocket: WebSocket, path: str = ""):
     if qs:
         ws_url += f"?{qs}"
 
-    extra_headers = {}
-    for key in ("origin", "cookie", "sec-websocket-protocol", "user-agent"):
-        val = websocket.headers.get(key)
-        if val:
-            extra_headers[key] = val
-
     upstream = None
     try:
         upstream = await websockets.connect(
             ws_url,
-            additional_headers=extra_headers,
             max_size=2**24,
             open_timeout=10,
             ping_interval=20,
             ping_timeout=20,
+            compression=None,
         )
         logger.info("WS proxy connected to upstream %s", ws_url)
     except Exception as e:
@@ -154,7 +148,7 @@ async def proxy_ws(websocket: WebSocket, path: str = ""):
         except WebSocketDisconnect:
             pass
         except Exception as e:
-            logger.debug("WS client->upstream error: %s", e)
+            logger.error("WS client->upstream error: %s", e)
 
     async def upstream_to_client():
         try:
@@ -164,7 +158,7 @@ async def proxy_ws(websocket: WebSocket, path: str = ""):
                 else:
                     await websocket.send_bytes(message)
         except Exception as e:
-            logger.debug("WS upstream->client error: %s", e)
+            logger.error("WS upstream->client error: %s", e)
 
     try:
         tasks = [
@@ -175,7 +169,7 @@ async def proxy_ws(websocket: WebSocket, path: str = ""):
         for t in pending:
             t.cancel()
     except Exception as e:
-        logger.debug("WS proxy relay error: %s", e)
+        logger.error("WS proxy relay error: %s", e)
     finally:
         try:
             await upstream.close()
@@ -200,6 +194,9 @@ def _start_streamlit() -> subprocess.Popen:
         f"--server.port={STREAMLIT_PORT}",
         "--server.address=127.0.0.1",
         "--server.headless=true",
+        "--server.enableCORS=false",
+        "--server.enableXsrfProtection=false",
+        "--server.enableWebsocketCompression=false",
         "--browser.gatherUsageStats=false",
     ]
     return subprocess.Popen(cmd, env=env)
