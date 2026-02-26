@@ -31,7 +31,23 @@ logger = logging.getLogger(__name__)
 STREAMLIT_PORT = 8501
 PORT = int(os.environ.get("PORT", 8080))
 
-app = FastAPI(title="Doc2Data", docs_url=None, redoc_url=None)
+from contextlib import asynccontextmanager
+
+_http_client: httpx.AsyncClient | None = None
+
+
+@asynccontextmanager
+async def _lifespan(application: FastAPI):
+    global _http_client
+    _http_client = httpx.AsyncClient(
+        base_url=f"http://127.0.0.1:{STREAMLIT_PORT}",
+        timeout=30.0,
+    )
+    yield
+    await _http_client.aclose()
+
+
+app = FastAPI(title="Doc2Data", docs_url=None, redoc_url=None, lifespan=_lifespan)
 
 app.add_api_route("/webhook", receive_webhook, methods=["POST"])
 
@@ -43,23 +59,9 @@ async def health():
 
 # ── HTTP reverse proxy ──────────────────────────────────────
 
-_http_client: httpx.AsyncClient | None = None
-
 
 def _get_http_client() -> httpx.AsyncClient:
-    global _http_client
-    if _http_client is None:
-        _http_client = httpx.AsyncClient(
-            base_url=f"http://127.0.0.1:{STREAMLIT_PORT}",
-            timeout=30.0,
-        )
     return _http_client
-
-
-@app.on_event("shutdown")
-async def _shutdown():
-    if _http_client:
-        await _http_client.aclose()
 
 
 HOP_BY_HOP = frozenset({"host", "connection", "transfer-encoding", "keep-alive", "upgrade"})
@@ -175,6 +177,12 @@ def _start_streamlit() -> subprocess.Popen:
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
+
+    # Heroku's buildpack sets WEB_CONCURRENCY=2, which makes uvicorn
+    # try multi-worker mode. That requires an import string, not an app
+    # object. Force single-worker since we manage Streamlit ourselves.
+    os.environ.pop("WEB_CONCURRENCY", None)
+
     logger.info("Starting Streamlit subprocess on port %d...", STREAMLIT_PORT)
     proc = _start_streamlit()
 
@@ -182,7 +190,7 @@ if __name__ == "__main__":
     logger.info("Starting FastAPI proxy on port %d...", PORT)
 
     try:
-        uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="info")
+        uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="info", workers=1)
     except KeyboardInterrupt:
         pass
     finally:
