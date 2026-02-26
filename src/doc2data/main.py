@@ -1,17 +1,20 @@
 #!/usr/bin/env python
 import base64
 import json
+import logging
 import os
 import re
 import tempfile
-from datetime import datetime, timezone
+
+logging.getLogger("LiteLLM").setLevel(logging.CRITICAL)
 
 from crewai import Agent, LLM
 from crewai.flow.flow import Flow, listen, start
 
 from doc2data.crews.extraction_crew.extraction_crew import ExtractionCrew
-from doc2data.models import DBWriteResult, InvoiceFlowState, ValidationResult
-from doc2data.tools.db_writer import DBWriterTool
+from doc2data.models import InvoiceFlowState, ValidationResult
+# from doc2data.models import DBWriteResult
+# from doc2data.tools.db_writer import DBWriterTool
 from doc2data.tools.invoice_extractor import InvoiceExtractorTool
 
 
@@ -265,7 +268,7 @@ class InvoiceProcessingFlow(Flow[InvoiceFlowState]):
                 "without summarizing or modifying any content."
             ),
             tools=[InvoiceExtractorTool()],
-            llm=LLM(model="openai/gpt-4o-mini", temperature=0),
+            llm=LLM(model="groq/llama-3.3-70b-versatile", temperature=0),
             verbose=False,
         )
 
@@ -294,7 +297,7 @@ class InvoiceProcessingFlow(Flow[InvoiceFlowState]):
             role="Invoice Validator",
             goal="Determine if a PDF contains a real, processable invoice",
             backstory="You review extracted invoice text and make a binary determination.",
-            llm=LLM(model="openai/gpt-4o-mini", temperature=0),
+            llm=LLM(model="groq/llama-3.3-70b-versatile", temperature=0),
             verbose=False,
         )
 
@@ -340,139 +343,86 @@ class InvoiceProcessingFlow(Flow[InvoiceFlowState]):
             self.state.extraction_status = "failed"
             self.state.error_message = "ExtractionCrew returned empty data"
 
+    # @listen(extract_invoice_data)
+    # def write_to_database(self):
+    #     """Agent uses DBWriterTool to insert the extracted invoice into Postgres."""
+    #     if self.state.extraction_status in ("skipped", "failed"):
+    #         return
+    #
+    #     print("[Flow] write_to_database started")
+    #
+    #     record = dict(self.state.invoice_data)
+    #     if "line_items" in record and isinstance(record["line_items"], list):
+    #         record["line_items"] = json.dumps(
+    #             [
+    #                 item if isinstance(item, dict) else item
+    #                 for item in record["line_items"]
+    #             ]
+    #         )
+    #     if self.state.trigger_source == "gdrive":
+    #         record["source_email"] = "streamlit_upload"
+    #         record["source_filename"] = self.state.source_filename
+    #     else:
+    #         record["source_email"] = self.state.email_sender
+    #         record["source_filename"] = self.state.attachment_filename
+    #     record["raw_extracted_text"] = self.state.pdf_raw_text
+    #     record["extraction_status"] = "processed"
+    #
+    #     db_agent = Agent(
+    #         role="Database Writer",
+    #         goal="Write structured invoice records to the PostgreSQL database",
+    #         backstory=(
+    #             "You persist invoice data to a PostgreSQL database using the db_writer tool. "
+    #             "You always pass the record exactly as provided without modification."
+    #         ),
+    #         tools=[DBWriterTool()],
+    #         llm=LLM(model="openai/gpt-4o-mini", temperature=0),
+    #         verbose=False,
+    #     )
+    #
+    #     record_json = json.dumps(record, default=str)
+    #     result = db_agent.kickoff(
+    #         f"Write this invoice record to the database using the db_writer tool.\n"
+    #         f"Pass the following JSON string as the 'record_json' parameter exactly as-is:\n\n"
+    #         f"{record_json}\n\n"
+    #         f"Return whether the write succeeded, the record_id, and any error.",
+    #         response_format=DBWriteResult,
+    #     )
+    #
+    #     db_result = result.pydantic
+    #     if db_result.success:
+    #         self.state.db_record_id = db_result.record_id
+    #         self.state.extraction_status = "processed"
+    #         print(f"[Flow] DB record created: id={db_result.record_id}")
+    #     else:
+    #         self.state.extraction_status = "failed"
+    #         self.state.error_message = db_result.error_detail or "DB write failed"
+    #         print(f"[Flow] DB write failed: {db_result.error_detail}")
+
     @listen(extract_invoice_data)
-    def write_to_database(self):
-        """Agent uses DBWriterTool to insert the extracted invoice into Postgres."""
-        if self.state.extraction_status in ("skipped", "failed"):
-            return
-
-        print("[Flow] write_to_database started")
-
-        record = dict(self.state.invoice_data)
-        if "line_items" in record and isinstance(record["line_items"], list):
-            record["line_items"] = json.dumps(
-                [
-                    item if isinstance(item, dict) else item
-                    for item in record["line_items"]
-                ]
-            )
-        if self.state.trigger_source == "gdrive":
-            record["source_email"] = "streamlit_upload"
-            record["source_filename"] = self.state.source_filename
-        else:
-            record["source_email"] = self.state.email_sender
-            record["source_filename"] = self.state.attachment_filename
-        record["raw_extracted_text"] = self.state.pdf_raw_text
-        record["extraction_status"] = "processed"
-
-        db_agent = Agent(
-            role="Database Writer",
-            goal="Write structured invoice records to the PostgreSQL database",
-            backstory=(
-                "You persist invoice data to a PostgreSQL database using the db_writer tool. "
-                "You always pass the record exactly as provided without modification."
-            ),
-            tools=[DBWriterTool()],
-            llm=LLM(model="openai/gpt-4o-mini", temperature=0),
-            verbose=False,
-        )
-
-        record_json = json.dumps(record, default=str)
-        result = db_agent.kickoff(
-            f"Write this invoice record to the database using the db_writer tool.\n"
-            f"Pass the following JSON string as the 'record_json' parameter exactly as-is:\n\n"
-            f"{record_json}\n\n"
-            f"Return whether the write succeeded, the record_id, and any error.",
-            response_format=DBWriteResult,
-        )
-
-        db_result = result.pydantic
-        if db_result.success:
-            self.state.db_record_id = db_result.record_id
-            self.state.extraction_status = "processed"
-            print(f"[Flow] DB record created: id={db_result.record_id}")
-        else:
-            self.state.extraction_status = "failed"
-            self.state.error_message = db_result.error_detail or "DB write failed"
-            print(f"[Flow] DB write failed: {db_result.error_detail}")
-
-    @listen(write_to_database)
     def finalize(self):
-        """Send a confirmation reply email on the original Gmail thread (Gmail triggers only)."""
+        """Return the extracted invoice data as the flow's final output."""
+        if self.state.extraction_status not in ("skipped", "failed"):
+            self.state.extraction_status = "processed"
+
+        result = {
+            "extraction_status": self.state.extraction_status,
+            "invoice_data": self.state.invoice_data,
+            "error_message": self.state.error_message or None,
+        }
+
         print(f"[Flow] finalize — status={self.state.extraction_status}")
-
-        if self.state.trigger_source == "gdrive":
-            print("[Flow] GDrive trigger — skipping email reply, results returned via API")
-            return
-
-        if not self.state.email_thread_id:
-            print("[Flow] No thread ID — skipping email reply")
-            return
-
-        email_agent = Agent(
-            role="Email Responder",
-            goal="Send a confirmation reply on the original email thread",
-            backstory="You send concise status emails about invoice processing results.",
-            apps=["gmail/send_email"],
-            verbose=False,
-        )
-
-        subject = f"Re: {self.state.email_subject}"
-        body = self._build_reply_body()
-
-        email_agent.kickoff(
-            f"Send an email reply with the following details:\n"
-            f"- to: {self.state.email_sender}\n"
-            f"- subject: {subject}\n"
-            f"- body: {body}\n"
-            f"- threadId: {self.state.email_thread_id}\n"
-            f"- userId: me\n\n"
-            f"Send this email now as an inline thread reply."
-        )
-        print("[Flow] Confirmation email sent")
-
-    def _build_reply_body(self) -> str:
-        status = self.state.extraction_status
-
-        if status == "processed":
+        if self.state.invoice_data:
             data = self.state.invoice_data
-            now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-            line_count = len(data.get("line_items", []))
-            return (
-                f"Hi,\n\n"
-                f"Your invoice has been successfully processed and logged.\n\n"
-                f"Summary:\n"
-                f"- Invoice #: {data.get('invoice_number', 'N/A')}\n"
-                f"- Vendor: {data.get('vendor_name', 'N/A')}\n"
-                f"- Invoice Date: {data.get('invoice_date', 'N/A')}\n"
-                f"- Line Items: {line_count}\n"
-                f"- Total Amount: {data.get('currency', 'USD')} {data.get('total_amount', 'N/A')}\n"
-                f"- Order ID: {data.get('order_id') or 'N/A'}\n"
-                f"- Record ID: {self.state.db_record_id}\n"
-                f"- Processed At: {now}\n\n"
-                f"No further action required.\n\n"
-                f"—Invoice Processing Flow | Doc 2 Data Demo"
-            )
+            print(f"[Flow]   Invoice #: {data.get('invoice_number')}")
+            print(f"[Flow]   Vendor:    {data.get('vendor_name')}")
+            print(f"[Flow]   Total:     {data.get('currency', 'USD')} {data.get('total_amount')}")
 
-        elif status == "skipped":
-            return (
-                f"Hi,\n\n"
-                f"The attached PDF does not appear to contain a valid invoice.\n"
-                f"No record was created.\n\n"
-                f"Reason: The document was blank, had no line items, or had a $0.00 total.\n\n"
-                f"Please reply with a valid invoice PDF if you intended to submit one.\n\n"
-                f"—Invoice Processing Flow | Doc 2 Data Demo"
-            )
+        return result
 
-        else:  # failed
-            return (
-                f"Hi,\n\n"
-                f"We encountered an error while processing your invoice attachment.\n"
-                f"No record was created.\n\n"
-                f"Error detail: {self.state.error_message}\n\n"
-                f"Please contact your administrator or retry with a different file.\n\n"
-                f"—Invoice Processing Flow | Doc 2 Data Demo"
-            )
+    # def _build_reply_body(self) -> str:
+    #     """Build email reply body — commented out while DB + email steps are disabled."""
+    #     ...
 
 
 def kickoff():
@@ -544,8 +494,6 @@ def run_gdrive():
     print(f"\n{'='*60}")
     print("[GDrive Run] Flow complete!")
     print(f"  Status:     {flow.state.extraction_status}")
-    if flow.state.db_record_id:
-        print(f"  DB Record:  {flow.state.db_record_id}")
     if flow.state.invoice_data:
         data = flow.state.invoice_data
         print(f"  Invoice #:  {data.get('invoice_number')}")
@@ -597,9 +545,9 @@ def run_local():
             "without summarizing or modifying any content."
         ),
         tools=[InvoiceExtractorTool()],
-        llm=LLM(model="openai/gpt-4o-mini", temperature=0),
-        verbose=False,
-    )
+            llm=LLM(model="groq/llama-3.3-70b-versatile", temperature=0),
+            verbose=False,
+        )
     extract_result = extractor_agent.kickoff(
         f"Extract all text from the PDF at path: {pdf_path}\n\n"
         f"Use the invoice_extractor tool with pdf_path='{pdf_path}'.\n"
@@ -619,9 +567,9 @@ def run_local():
         role="Invoice Validator",
         goal="Determine if a PDF contains a real, processable invoice",
         backstory="You review extracted invoice text and make a binary determination.",
-        llm=LLM(model="openai/gpt-4o-mini", temperature=0),
-        verbose=False,
-    )
+            llm=LLM(model="groq/llama-3.3-70b-versatile", temperature=0),
+            verbose=False,
+        )
     val_result = validator.kickoff(
         f"Review the following text extracted from a PDF.\n"
         f"Determine if this is a real, complete invoice with:\n"
@@ -660,53 +608,16 @@ def run_local():
     print(f"  -> Total: {invoice_data.get('currency', 'USD')} {invoice_data.get('total_amount')}")
     print(f"  -> Line items: {len(invoice_data.get('line_items', []))}\n")
 
-    # --- Step 4: Agent + DBWriterTool ---
-    print("[Step 4/5] Writing to database via Database Writer agent...")
-    record = dict(invoice_data)
-    if "line_items" in record and isinstance(record["line_items"], list):
-        record["line_items"] = json.dumps(
-            [item if isinstance(item, dict) else item for item in record["line_items"]]
-        )
-    record["source_email"] = "local_test@example.com"
-    record["source_filename"] = sample_pdf.name
-    record["raw_extracted_text"] = pdf_raw_text
-    record["extraction_status"] = "processed"
-
-    db_agent = Agent(
-        role="Database Writer",
-        goal="Write structured invoice records to the PostgreSQL database",
-        backstory=(
-            "You persist invoice data to a PostgreSQL database using the db_writer tool. "
-            "You always pass the record exactly as provided without modification."
-        ),
-        tools=[DBWriterTool()],
-        llm=LLM(model="openai/gpt-4o-mini", temperature=0),
-        verbose=False,
-    )
-    record_json = json.dumps(record, default=str)
-    db_result_raw = db_agent.kickoff(
-        f"Write this invoice record to the database using the db_writer tool.\n"
-        f"Pass the following JSON string as the 'record_json' parameter exactly as-is:\n\n"
-        f"{record_json}\n\n"
-        f"Return whether the write succeeded, the record_id, and any error.",
-        response_format=DBWriteResult,
-    )
-    db_result = db_result_raw.pydantic
-    if db_result.success:
-        print(f"  -> DB record created: id={db_result.record_id}\n")
-    else:
-        print(f"  !! DB write failed: {db_result.error_detail}\n")
-        return
-
-    # --- Step 5: Summary ---
+    # --- Step 4: Summary ---
     print(f"{'='*60}")
-    print("[Step 5/5] Local run complete!")
+    print("[Step 4/4] Local run complete!")
     print(f"  PDF:        {sample_pdf.name}")
     print(f"  Invoice #:  {invoice_data.get('invoice_number')}")
     print(f"  Vendor:     {invoice_data.get('vendor_name')}")
     print(f"  Total:      {invoice_data.get('currency', 'USD')} {invoice_data.get('total_amount')}")
-    print(f"  DB Record:  {db_result.record_id}")
     print(f"{'='*60}")
+    print("\nFull extracted data:")
+    print(json.dumps(invoice_data, indent=2, default=str))
 
 
 if __name__ == "__main__":

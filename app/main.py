@@ -8,7 +8,7 @@ import streamlit as st
 
 from services import ExecutionsService
 from utils import render_invoice_data
-from webhook_server import ensure_webhook_server_running
+# from webhook_server import ensure_webhook_server_running
 
 SAMPLES_DIR = Path(__file__).parent / "public" / "samples"
 SAMPLE_INVOICES = [
@@ -23,7 +23,7 @@ st.set_page_config(
     layout="centered",
 )
 
-ensure_webhook_server_running()
+# ensure_webhook_server_running()
 
 if "processing" not in st.session_state:
     st.session_state.processing = False
@@ -222,7 +222,7 @@ with st.sidebar:
         **How it works**
         1. Upload a PDF invoice
         2. CrewAI extracts the data
-        3. Record saved to database
+        3. View structured results
 
         [Try CrewAI for free](https://app.crewai.com/)
         """
@@ -327,21 +327,15 @@ if run_clicked and has_input:
         bar.progress(20, text="Uploading PDF to Google Drive...")
         kickoff_id = service.start_execution(pdf_bytes, filename)
 
-        if service.uses_webhooks:
-            bar.progress(40, text="Crew kicked off — waiting for webhook...")
-            status_text.caption(f"Execution ID: `{kickoff_id}`")
-            bar.progress(60, text="Processing — CrewAI will push results via webhook...")
-            result = service.wait_for_result(kickoff_id, timeout=120)
-        else:
-            bar.progress(40, text="Crew kicked off — polling for results...")
-            status_text.caption(f"Execution ID: `{kickoff_id}` (polling mode — no webhook URL configured)")
-            result = service.wait_for_result(
-                kickoff_id,
-                timeout=300,
-                progress_cb=lambda pct, text: bar.progress(pct, text=text),
-            )
+        bar.progress(40, text="Crew kicked off — waiting for results...")
+        status_text.caption(f"Execution ID: `{kickoff_id}`")
+        result = service.wait_for_result(
+            kickoff_id,
+            timeout=300,
+            progress_cb=lambda pct, msg: bar.progress(pct, text=msg),
+        )
 
-        bar.progress(100, text="Done!")
+        bar.progress(100, text="Complete!")
         progress.empty()
         status_text.empty()
 
@@ -373,12 +367,11 @@ if st.session_state.result:
 
     if status in ("processed", "completed"):
         st.success("Invoice processed successfully!")
-        db_id = result.get("db_record_id")
-        if db_id:
-            st.markdown(f"**Database Record ID:** `{db_id}`")
         invoice_data = result.get("invoice_data", {})
         if invoice_data:
             render_invoice_data(invoice_data)
+            with st.expander("Raw JSON", expanded=False):
+                st.json(invoice_data)
         else:
             st.info("No structured data returned.")
 
@@ -410,7 +403,7 @@ if not st.session_state.result:
         <div class="step">
             <div class="step-number">3</div>
             <h4>Results</h4>
-            <p>View extracted data &amp; DB record</p>
+            <p>View extracted invoice data</p>
         </div>
     </div>
     """)

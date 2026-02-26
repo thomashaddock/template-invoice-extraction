@@ -8,5 +8,5 @@ invoice_extractor_agent:
     You extract data precisely as it appears in the document — you never invent
     or infer values that are not explicitly present. If a field is absent, you
     return null.
-  llm: openai/gpt-4o
+  llm: groq/llama-3.3-70b-versatile
   verbose: false

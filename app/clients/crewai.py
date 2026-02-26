@@ -6,12 +6,12 @@ import requests
 class CrewAiClient:
     _URL = os.getenv("CREWAI_ENTERPRISE_API_URL")
     _API_KEY = os.getenv("CREWAI_ENTERPRISE_BEARER_TOKEN")
-    _WEBHOOK_URL = os.getenv("CREWAI_WEBHOOK_URL")
-    _WEBHOOK_BEARER_TOKEN = os.getenv("WEBHOOK_BEARER_TOKEN", "")
+    # _WEBHOOK_URL = os.getenv("CREWAI_WEBHOOK_URL")
+    # _WEBHOOK_BEARER_TOKEN = os.getenv("WEBHOOK_BEARER_TOKEN", "")
 
-    @property
-    def webhooks_enabled(self) -> bool:
-        return bool(self._WEBHOOK_URL)
+    # @property
+    # def webhooks_enabled(self) -> bool:
+    #     return bool(self._WEBHOOK_URL)
 
     def kickoff(self, drive_file_id: str, source_filename: str) -> dict:
         payload: dict = {
@@ -21,8 +21,8 @@ class CrewAiClient:
             },
         }
 
-        if self._WEBHOOK_URL:
-            payload["crewWebhookUrl"] = self._WEBHOOK_URL
+        # if self._WEBHOOK_URL:
+        #     payload["crewWebhookUrl"] = self._WEBHOOK_URL
 
         response = requests.post(
             f"{self._URL}/kickoff",
