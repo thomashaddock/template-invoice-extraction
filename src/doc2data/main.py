@@ -60,25 +60,21 @@ class InvoiceProcessingFlow(Flow[InvoiceFlowState]):
         return tmp.name
 
     @start()
-    def initialize_flow(
-        self,
-        drive_file_id: str = "",
-        source_filename: str = "",
-        crewai_trigger_payload: dict = None,
-    ):
-        """Accept flat API inputs (drive_file_id, source_filename) or AMP trigger payload."""
+    def initialize_flow(self, crewai_trigger_payload: dict = None):
+        """Accept AMP trigger payload OR flat API inputs (populated in self.state by the framework)."""
         print("[Flow] initialize_flow started")
-        print(f"[Flow] drive_file_id={drive_file_id!r}, source_filename={source_filename!r}, "
-              f"crewai_trigger_payload={'present' if crewai_trigger_payload else 'None'}")
+        print(f"[Flow] crewai_trigger_payload={'present' if crewai_trigger_payload else 'None'}, "
+              f"state.drive_file_id={self.state.drive_file_id!r}, "
+              f"state.source_filename={self.state.source_filename!r}")
 
-        if drive_file_id:
-            data = {
-                "drive_file_id": drive_file_id,
-                "source_filename": source_filename or "upload.pdf",
-            }
-        elif crewai_trigger_payload:
+        if crewai_trigger_payload:
             print(f"[Flow] Raw trigger payload keys: {list(crewai_trigger_payload.keys())}")
             data = self._unwrap_trigger(crewai_trigger_payload)
+        elif self.state.drive_file_id:
+            data = {
+                "drive_file_id": self.state.drive_file_id,
+                "source_filename": self.state.source_filename or "upload.pdf",
+            }
         else:
             print("[Flow] No inputs received — skipping")
             self.state.extraction_status = "skipped"
