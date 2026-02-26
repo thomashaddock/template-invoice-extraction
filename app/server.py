@@ -64,7 +64,25 @@ def _get_http_client() -> httpx.AsyncClient:
     return _http_client
 
 
-HOP_BY_HOP = frozenset({"host", "connection", "transfer-encoding", "keep-alive", "upgrade"})
+HOP_BY_HOP = frozenset({"connection", "transfer-encoding", "keep-alive", "upgrade"})
+
+
+def _proxy_headers(request: Request) -> dict[str, str]:
+    """Build headers for the upstream Streamlit request so it sees the public URL.
+
+    Streamlit uses Host and X-Forwarded-Proto to generate WebSocket URLs in the
+    frontend. Without these, it emits ws://127.0.0.1:8501/... and the browser fails.
+    """
+    headers = {k: v for k, v in request.headers.items() if k.lower() not in HOP_BY_HOP}
+    # Ensure Streamlit gets the public host so it generates wss://<public-host>/_stcore/stream
+    host = request.headers.get("host")
+    if host:
+        headers["host"] = host
+    # Heroku terminates TLS; Streamlit must know the client used HTTPS.
+    headers["x-forwarded-proto"] = request.headers.get("x-forwarded-proto", "https")
+    if request.headers.get("x-forwarded-for"):
+        headers["x-forwarded-for"] = request.headers.get("x-forwarded-for")
+    return headers
 
 
 @app.api_route(
@@ -79,7 +97,7 @@ async def proxy_http(request: Request, path: str = ""):
     if qs:
         url += f"?{qs}"
 
-    headers = {k: v for k, v in request.headers.items() if k.lower() not in HOP_BY_HOP}
+    headers = _proxy_headers(request)
 
     try:
         resp = await client.request(
@@ -197,6 +215,7 @@ def _start_streamlit() -> subprocess.Popen:
         "--server.enableCORS=false",
         "--server.enableXsrfProtection=false",
         "--server.enableWebsocketCompression=false",
+        "--server.websocketPingInterval=30",
         "--browser.gatherUsageStats=false",
     ]
     return subprocess.Popen(cmd, env=env)

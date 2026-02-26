@@ -4,6 +4,11 @@ primaryColor = "#0062ff"
 
 [server]
 headless = true
+runOnSave = false
 enableCORS = false
 enableXsrfProtection = false
 enableWebsocketCompression = false
+# Keep WebSocket alive through proxy; values < 30 can cause disconnects (Streamlit docs)
+websocketPingInterval = 30
+# Max WebSocket message size (MB) for large app state
+maxMessageSize = 200
