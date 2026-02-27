@@ -5,7 +5,7 @@ from crewai.agents.agent_builder.base_agent import BaseAgent
 from crewai.project import CrewBase, agent, crew, task
 from crewai.tasks.task_output import TaskOutput
 
-from doc2data.models import InvoiceRecord
+from invoice_extraction.models import InvoiceRecord
 
 
 def validate_invoice_record(result: TaskOutput) -> tuple[bool, Any]:

@@ -1,5 +1,5 @@
 """
-Streamlit demo for doc2data: upload or select a sample PDF, run the CrewAI flow, display extracted invoice data.
+Streamlit demo for invoice extraction: upload or select a sample PDF, run the CrewAI flow, display extracted invoice data.
 """
 import io
 from pathlib import Path

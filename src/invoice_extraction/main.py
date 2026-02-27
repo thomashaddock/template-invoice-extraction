@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-doc2data flow: invoice extraction from PDFs.
+Invoice extraction flow: extract structured data from PDF invoices.
 
 Triggered by Google Drive (Streamlit uploads) or Gmail. Downloads PDF, extracts text,
 validates as invoice, runs ExtractionCrew for structured fields, returns JSON.
@@ -17,9 +17,9 @@ logging.getLogger("LiteLLM").setLevel(logging.CRITICAL)
 from crewai import Agent, LLM
 from crewai.flow.flow import Flow, listen, start
 
-from doc2data.crews.extraction_crew.extraction_crew import ExtractionCrew
-from doc2data.models import InvoiceFlowState, ValidationResult
-from doc2data.tools.invoice_extractor import InvoiceExtractorTool
+from invoice_extraction.crews.extraction_crew.extraction_crew import ExtractionCrew
+from invoice_extraction.models import InvoiceFlowState, ValidationResult
+from invoice_extraction.tools.invoice_extractor import InvoiceExtractorTool
 
 
 class InvoiceProcessingFlow(Flow[InvoiceFlowState]):

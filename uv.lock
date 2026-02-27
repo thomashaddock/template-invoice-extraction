@@ -703,49 +703,6 @@ wheels = [
 ]
 
 [[package]]
-name = "doc2data"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "crewai", extra = ["tools"] },
-    { name = "fastapi" },
-    { name = "google-api-python-client" },
-    { name = "google-auth" },
-    { name = "httpx" },
-    { name = "humanize" },
-    { name = "litellm" },
-    { name = "pandas" },
-    { name = "pdfplumber" },
-    { name = "psycopg2-binary" },
-    { name = "pydantic" },
-    { name = "python-dateutil" },
-    { name = "python-dotenv" },
-    { name = "streamlit" },
-    { name = "uvicorn" },
-    { name = "websockets" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "crewai", extras = ["tools"], specifier = ">=0.186.1" },
-    { name = "fastapi", specifier = ">=0.115.0" },
-    { name = "google-api-python-client", specifier = ">=2.0" },
-    { name = "google-auth", specifier = ">=2.0" },
-    { name = "httpx", specifier = ">=0.27.0" },
-    { name = "humanize", specifier = ">=4.12.3" },
-    { name = "litellm", specifier = ">=1.75.3" },
-    { name = "pandas", specifier = ">=2.3.0" },
-    { name = "pdfplumber", specifier = ">=0.11" },
-    { name = "psycopg2-binary", specifier = ">=2.9" },
-    { name = "pydantic", specifier = ">=2.11.5" },
-    { name = "python-dateutil" },
-    { name = "python-dotenv", specifier = ">=1.0" },
-    { name = "streamlit", specifier = ">=1.45.1" },
-    { name = "uvicorn", specifier = ">=0.34.0" },
-    { name = "websockets", specifier = ">=12.0" },
-]
-
-[[package]]
 name = "docker"
 version = "7.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1280,6 +1237,51 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/f8/4d/cc37bc2bb0fcd9584f4935ecb5f4b23d33c63ddeea20d899d4d99f72a69a/instructor-1.12.0.tar.gz", hash = "sha256:f0e4dd7f275120f49200df0204af6a2d4e3e2f1f698b6b8c0f776e3a8c977e54", size = 69892486, upload-time = "2025-10-27T18:47:55.191Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b3/8a/af9e30cd9ec64ab595a39996fe761cf2c7ce47475a9607559e3ddf25104a/instructor-1.12.0-py3-none-any.whl", hash = "sha256:88c2161c5ac7ccb60f9b9fc3e93e6a5750a0a28f2927d835b7d198018c3165d9", size = 157906, upload-time = "2025-10-27T18:47:52.007Z" },
+]
+
+[[package]]
+name = "invoice-extraction"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "crewai", extra = ["tools"] },
+    { name = "fastapi" },
+    { name = "google-api-python-client" },
+    { name = "google-auth" },
+    { name = "httpx" },
+    { name = "humanize" },
+    { name = "litellm" },
+    { name = "pandas" },
+    { name = "pdfplumber" },
+    { name = "psycopg2-binary" },
+    { name = "pydantic" },
+    { name = "pymupdf" },
+    { name = "python-dateutil" },
+    { name = "python-dotenv" },
+    { name = "streamlit" },
+    { name = "uvicorn" },
+    { name = "websockets" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "crewai", extras = ["tools"], specifier = ">=1.9.3" },
+    { name = "fastapi", specifier = ">=0.115.0" },
+    { name = "google-api-python-client", specifier = ">=2.0" },
+    { name = "google-auth", specifier = ">=2.0" },
+    { name = "httpx", specifier = ">=0.27.0" },
+    { name = "humanize", specifier = ">=4.12.3" },
+    { name = "litellm", specifier = ">=1.75.3" },
+    { name = "pandas", specifier = ">=2.3.0" },
+    { name = "pdfplumber", specifier = ">=0.11" },
+    { name = "psycopg2-binary", specifier = ">=2.9" },
+    { name = "pydantic", specifier = ">=2.11.5" },
+    { name = "pymupdf", specifier = ">=1.24" },
+    { name = "python-dateutil" },
+    { name = "python-dotenv", specifier = ">=1.0" },
+    { name = "streamlit", specifier = ">=1.45.1" },
+    { name = "uvicorn", specifier = ">=0.34.0" },
+    { name = "websockets", specifier = ">=12.0" },
 ]
 
 [[package]]

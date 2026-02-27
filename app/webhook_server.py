@@ -20,7 +20,7 @@ WEBHOOK_BEARER_TOKEN = os.getenv("WEBHOOK_BEARER_TOKEN", "")
 
 # File-based result store — works both in-process (local dev) and
 # cross-process (Heroku where FastAPI and Streamlit are separate processes).
-RESULTS_DIR = Path(os.environ.get("WEBHOOK_RESULTS_DIR", "/tmp/doc2data_webhooks"))
+RESULTS_DIR = Path(os.environ.get("WEBHOOK_RESULTS_DIR", "/tmp/invoice_extraction_webhooks"))
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
 webhook_app = FastAPI(title="Doc2Data Webhook Receiver", docs_url=None, redoc_url=None)
