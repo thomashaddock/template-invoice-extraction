@@ -4,7 +4,6 @@ import time
 
 from clients import CrewAiClient, GDriveClient
 from models import Execution
-# from webhook_server import wait_for_result
 
 logger = logging.getLogger(__name__)
 
@@ -13,10 +12,6 @@ class ExecutionsService:
     def __init__(self):
         self.gdrive = GDriveClient()
         self.crewai = CrewAiClient()
-
-    # @property
-    # def uses_webhooks(self) -> bool:
-    #     return self.crewai.webhooks_enabled
 
     def list_executions(self) -> list[Execution]:
         files = self.gdrive.list_files()
@@ -57,15 +52,6 @@ class ExecutionsService:
         *progress_cb* is an optional callable(pct, text) for UI updates.
         """
         return self._wait_via_polling(kickoff_id, timeout, progress_cb)
-
-    # def _wait_via_webhook(self, kickoff_id: str, timeout: int) -> dict | None:
-    #     logger.info("Waiting for webhook result for %s (timeout=%ds)", kickoff_id, timeout)
-    #     result = wait_for_result(kickoff_id, timeout=timeout)
-    #     if result:
-    #         return result
-    #
-    #     logger.info("Webhook timeout for %s — trying single status poll fallback", kickoff_id)
-    #     return self._check_execution(kickoff_id)
 
     def _wait_via_polling(self, kickoff_id: str, timeout: int, progress_cb=None) -> dict | None:
         logger.info("Polling for %s (timeout=%ds)", kickoff_id, timeout)

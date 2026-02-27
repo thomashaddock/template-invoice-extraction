@@ -1,56 +1,79 @@
-# {{crew_name}} Crew
+# doc2data — Invoice Extraction with CrewAI
 
-Welcome to the {{crew_name}} Crew project, powered by [crewAI](https://crewai.com). This template is designed to help you set up a multi-agent AI system with ease, leveraging the powerful and flexible framework provided by crewAI. Our goal is to enable your agents to collaborate effectively on complex tasks, maximizing their collective intelligence and capabilities.
+Extract structured data from PDF invoices using a [CrewAI](https://crewai.com) flow: PDF text extraction, invoice validation, and structured field extraction (vendor, dates, line items, totals).
+
+## Project structure
+
+- **`src/doc2data/`** — CrewAI flow and crew
+  - `main.py` — `InvoiceProcessingFlow` (Drive/Gmail trigger, extract → validate → extract fields)
+  - `crews/extraction_crew/` — Extraction crew (agents + tasks YAML)
+  - `tools/` — `InvoiceExtractorTool` (PDF text), optional `DBWriterTool`
+  - `models.py` — Pydantic models for flow state and outputs
+- **`app/`** — Streamlit demo
+  - `main.py` — Upload or pick sample PDF, trigger flow, show results
+  - `clients/` — CrewAI Enterprise API, Google Drive
+  - `services/` — Execution lifecycle (upload, kickoff, poll status)
+  - `public/samples/` — Sample PDF invoices
 
 ## Installation
 
-Ensure you have Python >=3.10 <3.14 installed on your system. This project uses [UV](https://docs.astral.sh/uv/) for dependency management and package handling, offering a seamless setup and execution experience.
-
-First, if you haven't already, install uv:
+Requires Python ≥3.10,<3.14. This project uses [uv](https://docs.astral.sh/uv/) for dependencies.
 
 ```bash
 pip install uv
+cd /path/to/template_invoice_extraction
+uv sync
 ```
 
-Next, navigate to your project directory and install the dependencies:
+Copy environment variables and set required keys:
 
-(Optional) Lock the dependencies and install them by using the CLI command:
 ```bash
-crewai install
+cp .env.example .env
+# Edit .env: OPENAI_API_KEY, GROQ_API_KEY; for the app, CREWAI_ENTERPRISE_API_URL and CREWAI_ENTERPRISE_BEARER_TOKEN
 ```
 
-### Customizing
+See `.env.example` for all optional and required variables. **Do not commit `.env`.**
 
-**Add your `OPENAI_API_KEY` into the `.env` file**
+## Running the flow (CrewAI Enterprise)
 
-- Modify `src/doc2data/config/agents.yaml` to define your agents
-- Modify `src/doc2data/config/tasks.yaml` to define your tasks
-- Modify `src/doc2data/crew.py` to add your own logic, tools and specific args
-- Modify `src/doc2data/main.py` to add custom inputs for your agents and tasks
-
-## Running the Project
-
-To kickstart your flow and begin execution, run this from the root folder of your project:
+From the project root:
 
 ```bash
 crewai run
 ```
 
-This command initializes the doc2data Flow as defined in your configuration.
+This runs the doc2data flow as defined in `pyproject.toml` (CrewAI type: flow).
 
-This example, unmodified, will run the create a `report.md` file with the output of a research on LLMs in the root folder.
+### Local CLI runs
 
-## Understanding Your Crew
+- **Local PDF (no Drive):**  
+  `uv run run_local [path/to/invoice.pdf]`  
+  Defaults to the first PDF in `app/public/samples/` if no path is given.
 
-The doc2data Crew is composed of multiple AI agents, each with unique roles, goals, and tools. These agents collaborate on a series of tasks, defined in `config/tasks.yaml`, leveraging their collective skills to achieve complex objectives. The `config/agents.yaml` file outlines the capabilities and configurations of each agent in your crew.
+- **Simulate Drive trigger:**  
+  `uv run run_gdrive <drive_file_id> [source_filename]`  
+  Requires `GOOGLE_SERVICE_ACCOUNT_JSON` and `GOOGLE_DRIVE_FOLDER_ID` in `.env`.
+
+- **Trigger with JSON payload:**  
+  `uv run run_with_trigger '{"payload": {"drive_file_id": "...", "source_filename": "..."}}'`
+
+## Running the Streamlit app
+
+From the project root:
+
+```bash
+streamlit run app/main.py
+```
+
+The app uploads the selected PDF to Google Drive, kicks off the flow via CrewAI Enterprise, and polls for results. Configure `CREWAI_ENTERPRISE_API_URL`, `CREWAI_ENTERPRISE_BEARER_TOKEN`, and Google Drive in `.env` (or Heroku config vars if deployed).
+
+## Configuration
+
+- **Agents and tasks:** `src/doc2data/crews/extraction_crew/config/agents.yaml` and `tasks.yaml`
+- **Flow logic and tools:** `src/doc2data/main.py` and `src/doc2data/crews/extraction_crew/extraction_crew.py`
 
 ## Support
 
-For support, questions, or feedback regarding the {{crew_name}} Crew or crewAI.
-
-- Visit our [documentation](https://docs.crewai.com)
-- Reach out to us through our [GitHub repository](https://github.com/joaomdmoura/crewai)
-- [Join our Discord](https://discord.com/invite/X4JWnZnxPb)
-- [Chat with our docs](https://chatg.pt/DWjSBZn)
-
-Let's create wonders together with the power and simplicity of crewAI.
+- [CrewAI documentation](https://docs.crewai.com)
+- [CrewAI GitHub](https://github.com/crewAIInc/crewAI)
+- [CrewAI Discord](https://discord.com/invite/X4JWnZnxPb)

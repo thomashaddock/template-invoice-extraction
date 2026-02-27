@@ -1,4 +1,10 @@
 #!/usr/bin/env python
+"""
+doc2data flow: invoice extraction from PDFs.
+
+Triggered by Google Drive (Streamlit uploads) or Gmail. Downloads PDF, extracts text,
+validates as invoice, runs ExtractionCrew for structured fields, returns JSON.
+"""
 import base64
 import json
 import logging
@@ -13,8 +19,6 @@ from crewai.flow.flow import Flow, listen, start
 
 from doc2data.crews.extraction_crew.extraction_crew import ExtractionCrew
 from doc2data.models import InvoiceFlowState, ValidationResult
-# from doc2data.models import DBWriteResult
-# from doc2data.tools.db_writer import DBWriterTool
 from doc2data.tools.invoice_extractor import InvoiceExtractorTool
 
 
@@ -343,62 +347,6 @@ class InvoiceProcessingFlow(Flow[InvoiceFlowState]):
             self.state.extraction_status = "failed"
             self.state.error_message = "ExtractionCrew returned empty data"
 
-    # @listen(extract_invoice_data)
-    # def write_to_database(self):
-    #     """Agent uses DBWriterTool to insert the extracted invoice into Postgres."""
-    #     if self.state.extraction_status in ("skipped", "failed"):
-    #         return
-    #
-    #     print("[Flow] write_to_database started")
-    #
-    #     record = dict(self.state.invoice_data)
-    #     if "line_items" in record and isinstance(record["line_items"], list):
-    #         record["line_items"] = json.dumps(
-    #             [
-    #                 item if isinstance(item, dict) else item
-    #                 for item in record["line_items"]
-    #             ]
-    #         )
-    #     if self.state.trigger_source == "gdrive":
-    #         record["source_email"] = "streamlit_upload"
-    #         record["source_filename"] = self.state.source_filename
-    #     else:
-    #         record["source_email"] = self.state.email_sender
-    #         record["source_filename"] = self.state.attachment_filename
-    #     record["raw_extracted_text"] = self.state.pdf_raw_text
-    #     record["extraction_status"] = "processed"
-    #
-    #     db_agent = Agent(
-    #         role="Database Writer",
-    #         goal="Write structured invoice records to the PostgreSQL database",
-    #         backstory=(
-    #             "You persist invoice data to a PostgreSQL database using the db_writer tool. "
-    #             "You always pass the record exactly as provided without modification."
-    #         ),
-    #         tools=[DBWriterTool()],
-    #         llm=LLM(model="openai/gpt-4o-mini", temperature=0),
-    #         verbose=False,
-    #     )
-    #
-    #     record_json = json.dumps(record, default=str)
-    #     result = db_agent.kickoff(
-    #         f"Write this invoice record to the database using the db_writer tool.\n"
-    #         f"Pass the following JSON string as the 'record_json' parameter exactly as-is:\n\n"
-    #         f"{record_json}\n\n"
-    #         f"Return whether the write succeeded, the record_id, and any error.",
-    #         response_format=DBWriteResult,
-    #     )
-    #
-    #     db_result = result.pydantic
-    #     if db_result.success:
-    #         self.state.db_record_id = db_result.record_id
-    #         self.state.extraction_status = "processed"
-    #         print(f"[Flow] DB record created: id={db_result.record_id}")
-    #     else:
-    #         self.state.extraction_status = "failed"
-    #         self.state.error_message = db_result.error_detail or "DB write failed"
-    #         print(f"[Flow] DB write failed: {db_result.error_detail}")
-
     @listen(extract_invoice_data)
     def finalize(self):
         """Return the extracted invoice data as the flow's final output."""
@@ -419,10 +367,6 @@ class InvoiceProcessingFlow(Flow[InvoiceFlowState]):
             print(f"[Flow]   Total:     {data.get('currency', 'USD')} {data.get('total_amount')}")
 
         return result
-
-    # def _build_reply_body(self) -> str:
-    #     """Build email reply body — commented out while DB + email steps are disabled."""
-    #     ...
 
 
 def kickoff():
@@ -507,10 +451,10 @@ def run_gdrive():
 
 
 def run_local():
-    """Run the core pipeline against a local PDF (no Gmail, no S3).
+    """Run the core pipeline against a local PDF (no Gmail, no Drive).
 
     Usage:  uv run run_local [path/to/invoice.pdf]
-    If no path given, defaults to local_files/sample_invoices/*.pdf (first found).
+    If no path given, uses the first PDF in app/public/samples/.
     """
     import sys
     from pathlib import Path
@@ -518,11 +462,11 @@ def run_local():
     if len(sys.argv) >= 2 and not sys.argv[1].startswith("-"):
         sample_pdf = Path(sys.argv[1]).resolve()
     else:
-        sample_dir = Path(__file__).resolve().parents[2] / "local_files" / "sample_invoices"
+        sample_dir = Path(__file__).resolve().parents[2] / "app" / "public" / "samples"
         pdfs = sorted(sample_dir.glob("*.pdf")) if sample_dir.exists() else []
         if not pdfs:
             raise FileNotFoundError(
-                f"No PDFs found. Either pass a path as argument or put a PDF in {sample_dir}"
+                f"No PDFs found. Either pass a path as argument or add a PDF to {sample_dir}"
             )
         sample_pdf = pdfs[0]
 
@@ -545,9 +489,9 @@ def run_local():
             "without summarizing or modifying any content."
         ),
         tools=[InvoiceExtractorTool()],
-            llm=LLM(model="groq/llama-3.3-70b-versatile", temperature=0),
-            verbose=False,
-        )
+        llm=LLM(model="groq/llama-3.3-70b-versatile", temperature=0),
+        verbose=False,
+    )
     extract_result = extractor_agent.kickoff(
         f"Extract all text from the PDF at path: {pdf_path}\n\n"
         f"Use the invoice_extractor tool with pdf_path='{pdf_path}'.\n"
@@ -567,9 +511,9 @@ def run_local():
         role="Invoice Validator",
         goal="Determine if a PDF contains a real, processable invoice",
         backstory="You review extracted invoice text and make a binary determination.",
-            llm=LLM(model="groq/llama-3.3-70b-versatile", temperature=0),
-            verbose=False,
-        )
+        llm=LLM(model="groq/llama-3.3-70b-versatile", temperature=0),
+        verbose=False,
+    )
     val_result = validator.kickoff(
         f"Review the following text extracted from a PDF.\n"
         f"Determine if this is a real, complete invoice with:\n"

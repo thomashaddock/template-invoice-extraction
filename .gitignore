@@ -1,5 +1,8 @@
+# Secrets and local config (never commit)
 .env
+.env.local
 service-account-key.json
+*.pem
 __pycache__/
 lib/
 .DS_Store

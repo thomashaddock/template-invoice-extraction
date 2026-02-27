@@ -1,3 +1,9 @@
+"""
+Optional webhook receiver for CrewAI Enterprise callbacks.
+
+Currently unused: the Streamlit app uses status polling instead. Kept for
+environments that prefer webhook-based result delivery.
+"""
 import json
 import logging
 import os

@@ -1,3 +1,9 @@
+"""
+Optional tool to write extracted invoice records to PostgreSQL.
+
+The flow does not use this step by default. Enable by adding a listen(extract_invoice_data)
+step that calls an agent with DBWriterTool and set DATABASE_URL in the environment.
+"""
 import json
 import os
 from typing import Any, Type
