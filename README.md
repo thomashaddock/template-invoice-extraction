@@ -72,7 +72,7 @@ To run the demo in the cloud:
    git push heroku main
    ```
 
-   Heroku’s Python buildpack uses **uv** (`pyproject.toml` + `uv.lock`); no `requirements.txt` is needed. The `Procfile` runs: `streamlit run app/main.py --server.port=$PORT --server.address=0.0.0.0`. Use `runtime.txt` in the repo to pin the Python version (e.g. 3.11).
+   Heroku’s Python buildpack uses **uv** (`pyproject.toml` + `uv.lock`); no `requirements.txt` is needed. The `Procfile` runs: `streamlit run app/main.py --server.port=$PORT --server.address=0.0.0.0`. Python version is set via `.python-version` (e.g. `3.11`).
 
 Other platforms (Railway, Render, etc.): use the same env vars and process; if they don’t support uv, generate `requirements.txt` with `uv export --no-dev -o requirements.txt`.
 
