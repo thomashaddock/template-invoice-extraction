@@ -350,9 +350,13 @@ if run_clicked and has_input:
     except Exception as e:
         progress.empty()
         status_text.empty()
+        msg = str(e)
+        # Hint when API returns non-JSON (wrong URL, 401, 404, 500)
+        if "Expecting value" in msg or "JSON" in msg or "401" in msg or "403" in msg:
+            msg = f"{msg} — Check Heroku config: CREWAI_ENTERPRISE_API_URL and CREWAI_ENTERPRISE_BEARER_TOKEN."
         st.session_state.result = {
             "extraction_status": "failed",
-            "error_message": str(e),
+            "error_message": msg,
         }
 
     st.session_state.processing = False
