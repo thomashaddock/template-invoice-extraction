@@ -56,15 +56,7 @@ Upload or pick a sample PDF, click “Run Crew,” and view extracted invoice da
 
 To run the demo in the cloud:
 
-1. **Requirements for Heroku:** The Python buildpack expects a `requirements.txt`. Generate it with:
-
-   ```bash
-   uv export --no-dev -o requirements.txt
-   ```
-
-   You can commit this file so that `git push heroku main` works without running the command again.
-
-2. **Set config vars** (same names as in `app/.env.example`):
+1. **Set config vars** (same names as in `app/.env.example`):
 
    ```bash
    heroku create your-app-name
@@ -74,17 +66,15 @@ To run the demo in the cloud:
    heroku config:set GOOGLE_DRIVE_FOLDER_ID=...
    ```
 
-   `runtime.txt` in the repo pins Python 3.11 for Heroku.
-
-3. **Deploy:**
+2. **Deploy:**
 
    ```bash
    git push heroku main
    ```
 
-   The `Procfile` runs: `streamlit run app/main.py --server.port=$PORT --server.address=0.0.0.0`.
+   Heroku’s Python buildpack uses **uv** (`pyproject.toml` + `uv.lock`); no `requirements.txt` is needed. The `Procfile` runs: `streamlit run app/main.py --server.port=$PORT --server.address=0.0.0.0`. Use `runtime.txt` in the repo to pin the Python version (e.g. 3.11).
 
-Other platforms (Railway, Render, etc.): use the same env vars, set the process to run `streamlit run app/main.py --server.port=$PORT --server.address=0.0.0.0`, and provide a `requirements.txt` (e.g. from `uv export --no-dev -o requirements.txt`).
+Other platforms (Railway, Render, etc.): use the same env vars and process; if they don’t support uv, generate `requirements.txt` with `uv export --no-dev -o requirements.txt`.
 
 ---
 

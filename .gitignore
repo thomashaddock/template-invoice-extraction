@@ -13,3 +13,6 @@ build/
 venv/
 
 local_files/
+
+# Heroku uses uv (pyproject.toml + uv.lock); avoid committing pip requirements
+requirements.txt
