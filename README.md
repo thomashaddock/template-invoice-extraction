@@ -7,8 +7,8 @@ Extract structured data from PDF invoices using a [CrewAI](https://crewai.com) f
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/crewai/template_invoice_extraction.git
-cd template_invoice_extraction
+git clone https://github.com/thomashaddock/template-invoice-extraction.git
+cd template-invoice-extraction
 pip install uv
 uv sync
 ```
